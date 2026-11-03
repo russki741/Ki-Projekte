@@ -170,9 +170,34 @@ footer{padding:10px 0 60px;color:var(--ink-3);font-size:.875rem}
 .toast b{display:block}
 
 /* capital statement + profit/loss tables */
-.jump{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 0}
-.jump a{border:1px solid var(--line-2);border-radius:999px;padding:5px 13px;font-weight:600;font-size:.9rem;color:var(--ink-2);text-decoration:none;background:var(--surface)}
-.jump a:hover{border-color:var(--ink-3);color:var(--ink)}
+/* areas of the app: one sticky bar, one visible area at a time */
+html{scroll-padding-top:72px}
+.views{position:sticky;top:0;z-index:15;background:var(--bg);margin:18px 0 0;padding:10px 0;border-bottom:1px solid var(--line)}
+.vbar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.vbar::-webkit-scrollbar{display:none}
+.vbar a{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);border-radius:999px;padding:7px 14px;font-weight:600;font-size:.92rem;color:var(--ink-2);text-decoration:none;background:var(--surface);white-space:nowrap}
+.vbar a:hover{border-color:var(--ink-3);color:var(--ink)}
+.vbar a[aria-current="page"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.vdot{width:8px;height:8px;border-radius:50%;background:var(--line-2);flex:0 0 auto}
+.vdot.on{background:var(--gain)} .vdot.warn{background:var(--warn)} .vdot.bad{background:var(--loss)}
+.view > section.block:first-child{padding-top:22px}
+
+/* bybit demo area */
+.bb-head{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:end;margin-top:10px}
+.bb-state{font-size:clamp(1.9rem,5.5vw,2.8rem);line-height:1.05;font-weight:700;letter-spacing:-.02em}
+.bb-state.on{color:var(--accent)}
+.bb-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0 0}
+.bb-tiles div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.bb-tiles dt{font-size:.875rem;color:var(--ink-3)}
+.bb-tiles dd{margin:2px 0 0;font-size:1.4rem;font-weight:700;letter-spacing:-.02em}
+.bb-tiles dd small{display:block;font-size:.8rem;font-weight:500;color:var(--ink-3);letter-spacing:0}
+.bb-legend{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;font-size:.92rem}
+.bb-sw{display:inline-block;width:22px;height:0;border-top:3px solid var(--s1);vertical-align:middle;margin-right:6px}
+.bb-sw.dash{border-top:3px dashed var(--s2)}
+.bb-sum{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 16px 14px}
+.bb-sum .sumline{margin-bottom:10px}
+td small.cell{display:block;color:var(--ink-3);font-size:.8rem;font-weight:400;white-space:normal}
+@media (max-width:640px){.bb-head{grid-template-columns:1fr}.bb-head .ctrl{justify-content:flex-start}}
 .stmt{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
 .stmt table{min-width:0}
 .stmt th.num{padding-left:20px}
@@ -233,70 +258,127 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
     <header class="top">
       <h1>KI-Agent Handelssimulation</h1>
       <span class="simtag" id="simtag">Nur Simulation: virtuelles Geld, keine echten Orders</span>
-      <span><a class="btn link" href="./bybit.html">Bybit-Demo →</a>
-      <button class="btn link" id="logout" type="button">Abmelden</button></span>
+      <button class="btn link" id="logout" type="button">Abmelden</button>
     </header>
 
     <section class="hero" id="hero" aria-label="Status und Steuerung"></section>
     <dl class="ledger" id="ledger"></dl>
-    <nav class="jump" aria-label="Abschnitte"><a href="#s-capital">Kapital</a><a href="#s-pnl">Gewinn und Verlust</a><a href="#s-markets">Märkte</a><a href="#s-agents">Agenten</a><a href="#s-pos">Positionen</a><a href="#s-lessons">Gelernt</a><a href="#s-news">Nachrichten</a></nav>
+    <nav class="views" aria-label="Bereiche der App">
+      <div class="vbar">
+        <a href="#uebersicht" data-v="uebersicht">Übersicht</a>
+        <a href="#trades" data-v="trades">Trades</a>
+        <a href="#maerkte" data-v="maerkte">Märkte</a>
+        <a href="#bybit" data-v="bybit"><i class="vdot" id="bb-dot" aria-hidden="true"></i>Bybit-Demo</a>
+        <a href="#news" data-v="news">Nachrichten</a>
+        <a href="#einstellungen" data-v="einstellungen">Einstellungen</a>
+      </div>
+    </nav>
 
-    <section class="block" id="s-capital">
-      <h2>So viel Kapital bleibt übrig</h2>
-      <p class="lead" id="capital-lead"></p>
-      <div id="capital"></div>
-    </section>
+    <div class="view" data-view="uebersicht">
+      <section class="block" id="s-capital">
+        <h2>So viel Kapital bleibt übrig</h2>
+        <p class="lead" id="capital-lead"></p>
+        <div id="capital"></div>
+      </section>
 
-    <section class="block" id="s-pnl">
-      <h2>Gewinn und Verlust</h2>
-      <p class="lead">Jeder abgeschlossene Trade steht einzeln in der Tabelle, mit Gebühren, Ergebnis und dem Kapital danach. Alle Beträge sind virtuell und nach Gebühren, Spread und Slippage.</p>
-      <div id="pnl"></div>
-    </section>
+      <section class="block" id="s-bbsum">
+        <h2>Bybit-Demo-Konto</h2>
+        <p class="lead">Krypto-Trades der Agenten werden zusätzlich auf einem Bybit-Demo-Konto mit Spielgeld ausgeführt. So siehst du, was an einer echten Börse aus denselben Trades geworden wäre.</p>
+        <div id="bb-sum"></div>
+      </section>
 
-    <section class="block" id="s-markets">
-      <h2>Märkte nach Signalqualität</h2>
-      <p class="lead">Jede Minute werden die letzten abgeschlossenen 1-Minuten-Kerzen bewertet. Ein Einstieg wird nur simuliert, wenn die Qualität das Minimum erreicht und die Kosten (Gebühren, Spread, Slippage) zum Kursziel passen.</p>
-      <div class="tabs" role="tablist" id="tabs" aria-label="Marktmodule"></div>
-      <div id="markets"></div>
-    </section>
+      <section class="block" id="s-agents">
+        <h2>Agenten</h2>
+        <p class="lead" id="agents-lead"></p>
+        <div id="agents"></div>
+        <div id="repl"></div>
+      </section>
 
-    <section class="block" id="s-agents">
-      <h2>Agenten</h2>
-      <p class="lead" id="agents-lead"></p>
-      <div id="agents"></div>
-      <div id="repl"></div>
-    </section>
+      <section class="block" id="s-chart">
+        <h2>Kapitalverlauf der letzten 24 Stunden</h2>
+        <div id="chart"></div>
+      </section>
+    </div>
 
-    <section class="block" id="s-chart">
-      <h2>Kapitalverlauf der letzten 24 Stunden</h2>
-      <div id="chart"></div>
-    </section>
+    <div class="view" data-view="trades" hidden>
+      <section class="block" id="s-pnl">
+        <h2>Gewinn und Verlust</h2>
+        <p class="lead">Jeder abgeschlossene Trade steht einzeln in der Tabelle, mit Gebühren, Ergebnis und dem Kapital danach. Alle Beträge sind virtuell und nach Gebühren, Spread und Slippage.</p>
+        <div id="pnl"></div>
+      </section>
 
-    <section class="block" id="s-pos">
-      <h2>Offene Positionen</h2>
-      <p class="lead">Long heißt gekauft, Short heißt leer verkauft. Jede Position hat einen Stop-Loss.</p>
-      <div id="positions"></div>
-    </section>
+      <section class="block" id="s-pos">
+        <h2>Offene Positionen</h2>
+        <p class="lead">Long heißt gekauft, Short heißt leer verkauft. Jede Position hat einen Stop-Loss.</p>
+        <div id="positions"></div>
+      </section>
+    </div>
 
-    <section class="block" id="s-lessons">
-      <h2>Was der Agent gelernt hat</h2>
-      <p class="lead">Nach jedem Trade wird das Muster (Symbol, Richtung, Handelssitzung) bewertet. Ein Muster wird gesperrt, wenn es nach mindestens 12 Trades im Schnitt schlechter als −0,25 R läuft. Danach folgt eine Testphase.</p>
-      <div id="lessons"></div>
-    </section>
+    <div class="view" data-view="maerkte" hidden>
+      <section class="block" id="s-markets">
+        <h2>Märkte nach Signalqualität</h2>
+        <p class="lead">Jede Minute werden die letzten abgeschlossenen 1-Minuten-Kerzen bewertet. Ein Einstieg wird nur simuliert, wenn die Qualität das Minimum erreicht und die Kosten (Gebühren, Spread, Slippage) zum Kursziel passen.</p>
+        <div class="tabs" role="tablist" id="tabs" aria-label="Marktmodule"></div>
+        <div id="markets"></div>
+      </section>
 
-    <section class="block" id="s-news">
-      <h2>Nachrichten</h2>
-      <p class="lead">Öffentliche Quellen zu Zentralbanken, Wirtschaft, Politik und Krypto. Die Bewertung ist eine Stichwort-Auswertung und keine KI. Eine frische, hoch eingestufte Meldung pausiert neue Einstiege im betroffenen Markt für 30 Minuten.</p>
-      <div class="srcs" id="newssrc"></div>
-      <div id="news"></div>
-    </section>
+      <section class="block" id="s-lessons">
+        <h2>Was der Agent gelernt hat</h2>
+        <p class="lead">Nach jedem Trade wird das Muster (Symbol, Richtung, Handelssitzung) bewertet. Ein Muster wird gesperrt, wenn es nach mindestens 12 Trades im Schnitt schlechter als −0,25 R läuft. Danach folgt eine Testphase.</p>
+        <div id="lessons"></div>
+      </section>
+    </div>
 
-    <section class="block" id="s-notes">
-      <h2>Benachrichtigungen</h2>
-      <p class="lead" id="notes-lead"></p>
-      <div id="notes"></div>
-    </section>
+    <div class="view" data-view="bybit" hidden>
+      <section class="block" id="s-bybit">
+        <h2>Bybit-Demo-Konto</h2>
+        <div class="bb-head">
+          <div>
+            <div class="bb-state" id="bb-state">…</div>
+            <p class="state-sub" id="bb-sub">Daten werden geladen.</p>
+          </div>
+          <div class="ctrl"><button class="btn" id="bb-toggle" type="button" hidden></button></div>
+        </div>
+        <div id="bb-banners"></div>
+        <dl class="bb-tiles" id="bb-tiles"></dl>
 
+        <h3 class="sub">Ergebnis der gespiegelten Trades</h3>
+        <p class="lead">Summe nach jedem abgeschlossenen Trade, netto nach Gebühren. Bybit ist das, was auf dem Demo-Konto wirklich passiert ist. Papier ist das, was die Rechnung des Agenten für dieselben Trades ergibt.</p>
+        <div id="bb-chart"></div>
+
+        <h3 class="sub">Jetzt offen auf Bybit</h3>
+        <div id="bb-open"></div>
+
+        <h3 class="sub">Abgeschlossene Trades auf Bybit</h3>
+        <p class="lead">Netto ist die Veränderung des USDT-Guthabens durch den Trade, inklusive Gebühren. Der Unterschied zu Papier entsteht durch Preisabweichung und Gebühren.</p>
+        <div id="bb-pairs"></div>
+
+        <h3 class="sub">Alle Orders</h3>
+        <p class="lead">Abweichung zum Papier-Preis: plus heißt, Bybit war für uns schlechter als die Rechnung des Agenten.</p>
+        <div id="bb-orders"></div>
+
+        <h3 class="sub">Kontostand</h3>
+        <div id="bb-wallet"></div>
+        <p class="small muted" style="margin-top:10px;max-width:80ch">Spielgeld auf dem Bybit-Demo-Konto, ohne Hebel und nur Käufe (Spot). Eine Order wird erst gesendet, wenn der Agent im Papier-Modell einen Trade eröffnet oder schließt, deshalb kommt die Ausführung bis zu 30 Sekunden später. Reste unter dem kleinsten Bybit-Mengenschritt bleiben auf dem Konto und sind im Ergebnis zum Verkaufspreis eingerechnet.</p>
+      </section>
+    </div>
+
+    <div class="view" data-view="news" hidden>
+      <section class="block" id="s-news">
+        <h2>Nachrichten</h2>
+        <p class="lead">Öffentliche Quellen zu Zentralbanken, Wirtschaft, Politik und Krypto. Die Bewertung ist eine Stichwort-Auswertung und keine KI. Eine frische, hoch eingestufte Meldung pausiert neue Einstiege im betroffenen Markt für 30 Minuten.</p>
+        <div class="srcs" id="newssrc"></div>
+        <div id="news"></div>
+      </section>
+
+      <section class="block" id="s-notes">
+        <h2>Benachrichtigungen</h2>
+        <p class="lead" id="notes-lead"></p>
+        <div id="notes"></div>
+      </section>
+    </div>
+
+    <div class="view" data-view="einstellungen" hidden>
     <section class="block" id="s-settings">
       <h2>Einstellungen</h2>
       <div id="settings"></div>
@@ -305,7 +387,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
     <details class="hints">
       <summary>Was du wissen solltest</summary>
       <ul>
-        <li>Alles läuft mit virtuellem Geld. Es gibt keine Bybit-Schlüssel, keine echten Orders und keinen Weg, von hier aus echtes Geld zu bewegen.</li>
+        <li>Die Agenten handeln mit virtuellem Geld. Krypto-Trades werden zusätzlich auf einem Bybit-Demo-Konto mit Spielgeld ausgeführt. Es gibt keine echten Orders und keinen Weg, von hier aus echtes Geld zu bewegen.</li>
         <li>Die Strategie ist eine einfache, regelbasierte Heuristik (Trend auf 15 Minuten, Einstieg auf 1 Minute). Sie ist nicht bewiesen profitabel. Kurzfristiger Handel verliert oft durch Gebühren.</li>
         <li>Die „KI“ besteht aus Regeln und einem Lernspeicher. Sie versteht keine Texte und sagt keine Kurse voraus.</li>
         <li>500 Euro an einem Tag sind bei 10.000 US-Dollar Startkapital rund 5 Prozent in 24 Stunden. Mit 1 Prozent Risiko pro Trade und Positionsgrenze ist das sehr unwahrscheinlich. Erst dann entsteht ein zweiter Agent, und nur als Simulation.</li>
@@ -315,6 +397,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
         <li>Das ist keine Anlageberatung.</li>
       </ul>
     </details>
+    </div>
     <footer id="foot"></footer>
   </div>
 </div>
@@ -950,6 +1033,8 @@ function renderNotes(D) {
 }
 function renderSettings(D) {
   const s = D.settings;
+  const f = $("#set-form");
+  if (f && f.contains(document.activeElement)) return; // do not overwrite what the user is typing during the 15 s refresh
   $("#settings").innerHTML = `<form class="form" id="set-form">
     <div><label for="f-max">Höchstzahl Agenten</label><input id="f-max" type="number" min="1" max="10" step="1" value="${esc(s.max_agents)}"></div>
     <div><label for="f-thr">Schwelle für Vermehrung (Euro pro Tag)</label><input id="f-thr" type="number" min="1" step="1" value="${esc(s.replication_threshold_eur)}"></div>
@@ -958,6 +1043,204 @@ function renderSettings(D) {
   </form>
   <p class="small muted" style="margin-top:10px">Kill-Switch: ${s.kill_switch ? "an" : "aus"}. Märkte: Krypto ${s.markets_enabled?.crypto ? "an" : "aus"}, Forex ${s.markets_enabled?.forex ? "an" : "aus"}. Der Modus „nur Simulation“ ist fest eingestellt und lässt sich hier nicht ändern.</p>`;
 }
+
+/* ---------- bybit demo account (bybit-view) ---------- */
+const BB_API = "https://lmgmeegwufbthxqlilkj.supabase.co/functions/v1/bybit-view";
+const bb = { data: null, busy: false, err: null };
+const BB_STATUS = { filled: ["ausgeführt", "ok"], partial: ["teilweise", "warn"], sending: ["wird gesendet", "warn"], error: ["Fehler", "bad"], skipped: ["übersprungen", "warn"] };
+const BB_REASON = { stop: "Stop-Loss", target: "Kursziel", time: "Zeitlimit", signal: "Signal", kill_switch: "Kill-Switch", stopped: "Agent gestoppt", halted: "Agent angehalten" };
+const bp = (x) => (Number.isFinite(x) ? signed(x, 1) + " bp" : "–");
+
+async function bbApi(body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(BB_API, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": store.get() || "" }, body: JSON.stringify(body || { action: "overview" }), signal: ctrl.signal });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    return { status: res.status, data };
+  } finally { clearTimeout(timer); }
+}
+async function bbLoad() {
+  if (bb.busy || !store.get()) return;
+  bb.busy = true;
+  try {
+    const r = await bbApi();
+    if (r.status === 401) { bb.busy = false; logout("Der Zugangscode wurde nicht akzeptiert."); return; }
+    if (r.status !== 200 || !r.data || !r.data.config) throw new Error(r.data?.error || "HTTP " + r.status);
+    bb.data = r.data; bb.err = null;
+  } catch (e) {
+    bb.err = e && e.name === "AbortError" ? "Zeitüberschreitung" : String(e && e.message ? e.message : e).slice(0, 80);
+  } finally { bb.busy = false; }
+  renderBybit();
+}
+function bbHealth(d) {
+  const c = d.config || {}, st = d.settings || {};
+  const now = Date.parse(d.now) || nowMs();
+  const stale = c.enabled === true && (!c.last_reconcile_at || now - Date.parse(c.last_reconcile_at) > 120000);
+  return { c, st, now, stale, on: c.enabled === true, bad: !!c.last_error || stale || st.paper_only === false };
+}
+async function bbToggle() {
+  const on = bb.data?.config?.enabled === true;
+  const q = on
+    ? "Spiegeln ausschalten?\n\nNeue Agenten-Trades werden dann nicht mehr an Bybit gesendet. Das geht nur, wenn auf Bybit nichts offen ist."
+    : "Spiegeln einschalten?\n\nAb jetzt werden neue Krypto-Trades der Agenten auch auf dem Bybit-Demo-Konto (Spielgeld) ausgeführt.";
+  if (!confirm(q)) return;
+  const b = $("#bb-toggle"); b.disabled = true;
+  try {
+    const r = await bbApi({ action: "set_enabled", enabled: !on });
+    if (r.status === 401) { logout("Der Zugangscode wurde nicht akzeptiert."); return; }
+    if (r.status === 409) toast("Ausschalten gerade nicht möglich", `Auf Bybit ${r.data?.open === 1 ? "ist noch 1 Position" : "sind noch " + (r.data?.open ?? "mehrere") + " Positionen"} offen. Sobald der Agent sie schließt, geht es.`);
+    else if (r.status !== 200) toast("Das hat nicht geklappt", (r.data && r.data.error) || "HTTP " + r.status);
+    else toast(on ? "Spiegeln ausgeschaltet" : "Spiegeln eingeschaltet");
+  } catch { toast("Keine Verbindung", "Der Schalter wurde nicht bestätigt. Bitte prüfe den Status."); }
+  b.disabled = false;
+  bbLoad();
+}
+
+function renderBybit() {
+  const d = bb.data;
+  const dot = $("#bb-dot");
+  if (!d) {
+    dot.className = "vdot" + (bb.err ? " bad" : "");
+    const msg = bb.err ? `<div class="empty">Die Bybit-Daten konnten nicht geladen werden (${esc(bb.err)}). Neuer Versuch beim nächsten Aktualisieren.</div>` : `<div class="empty">Bybit-Daten werden geladen …</div>`;
+    $("#bb-sum").innerHTML = msg;
+    $("#bb-state").textContent = "…"; $("#bb-sub").textContent = bb.err ? "Keine Verbindung zur Bybit-Ansicht." : "Daten werden geladen.";
+    $("#bb-banners").innerHTML = bb.err ? `<div class="banner bad" role="alert">${msg.replace(/^<div class="empty">|<\/div>$/g, "")}</div>` : "";
+    return;
+  }
+  const H = bbHealth(d), s = d.stats || {};
+  dot.className = "vdot" + (bb.err || H.bad ? " bad" : H.st.kill_switch ? " warn" : H.on ? " on" : "");
+  dot.title = H.on ? "Spiegeln an" : "Spiegeln aus";
+
+  // summary on the overview
+  const diff = s.pairs ? s.net_usd - s.paper_net_usd : null;
+  const openSyms = (d.open || []).map((o) => SYM(o.symbol)).join(", ");
+  $("#bb-sum").innerHTML = `<div class="bb-sum"><dl class="sumline">
+      <div><dt>Spiegeln</dt><dd class="${H.bad ? "loss" : ""}">${H.on ? "An" : "Aus"}<small>${H.bad ? "Problem, siehe Details" : "letzte Prüfung " + esc(agoIso(H.c.last_reconcile_at))}</small></dd></div>
+      <div><dt>Ergebnis auf Bybit</dt><dd class="${clsPnl(s.net_usd)}">${s.pairs ? esc(usd(s.net_usd, true)) : "–"}<small>${esc(s.pairs || 0)} Trades, ${esc(s.wins || 0)} im Plus</small></dd></div>
+      <div><dt>Papier, gleiche Trades</dt><dd class="${clsPnl(s.paper_net_usd)}">${s.pairs ? esc(usd(s.paper_net_usd, true)) : "–"}<small>${diff == null ? "noch kein Vergleich" : "Bybit " + esc(usd(diff, true)) + " gegenüber Papier"}</small></dd></div>
+      <div><dt>Offen auf Bybit</dt><dd>${esc(s.open || 0)}<small>${openSyms ? esc(openSyms) : "nichts offen"}</small></dd></div>
+    </dl><a class="btn sm" href="#bybit">Alle Bybit-Details</a></div>`;
+
+  // the bybit area
+  $("#bb-state").textContent = H.on ? "Spiegeln an" : "Spiegeln aus";
+  $("#bb-state").className = "bb-state" + (H.on ? " on" : "");
+  $("#bb-sub").textContent = H.on
+    ? `Eröffnet oder schließt ein Agent einen Krypto-Trade (BTC, ETH, SOL), wird dieselbe Order auf dem Bybit-Demo-Konto ausgeführt. Letzte Prüfung ${agoIso(H.c.last_reconcile_at)}, läuft seit ${T(H.c.enabled_since)}.`
+    : "Es werden keine Orders an Bybit gesendet. Die Agenten rechnen weiter im Papier-Modell.";
+  const tg = $("#bb-toggle"); tg.hidden = false;
+  tg.textContent = H.on ? "Spiegeln ausschalten" : "Spiegeln einschalten";
+  tg.className = "btn " + (H.on ? "danger" : "primary");
+
+  const ban = [];
+  if (bb.err) ban.push(`<div class="banner" role="status"><b>Die Anzeige ist nicht aktuell.</b> Letzter Abruf fehlgeschlagen (${esc(bb.err)}).</div>`);
+  if (H.c.last_error) ban.push(`<div class="banner bad" role="alert"><b>Fehler beim Spiegeln:</b> ${esc(H.c.last_error)}</div>`);
+  if (H.stale) ban.push(`<div class="banner bad" role="alert"><b>Das Spiegeln meldet sich nicht.</b> Letzte Prüfung ${esc(agoIso(H.c.last_reconcile_at))}. Neue Trades werden gerade nicht an Bybit gesendet.</div>`);
+  if (H.st.kill_switch) ban.push(`<div class="banner" role="status"><b>Der Kill-Switch ist an.</b> Neue Käufe auf Bybit werden übersprungen.</div>`);
+  if (H.st.paper_only === false) ban.push(`<div class="banner bad" role="alert"><b>Der Schutzschalter „nur Simulation“ ist aus.</b> Das Spiegeln sendet deshalb nichts.</div>`);
+  $("#bb-banners").innerHTML = ban.join("");
+
+  const usdt = (d.wallet?.coins || []).find((x) => x.coin === "USDT");
+  const tiles = [
+    ["Ergebnis auf Bybit", s.pairs ? usd(s.net_usd, true) : "–", clsPnl(s.net_usd), `${s.pairs || 0} abgeschlossene Trades, ${s.wins || 0} im Plus`],
+    ["Papier, gleiche Trades", s.pairs ? usd(s.paper_net_usd, true) : "–", clsPnl(s.paper_net_usd), diff == null ? "noch kein Vergleich" : `Bybit ${usd(diff, true)} gegenüber Papier`],
+    ["Gebühren bezahlt", usd(s.fees_usd || 0), "", "0,1 % je Order"],
+    ["Ø Preisabweichung", bp(s.avg_slip_bps), "", "zum Papier-Preis, plus = schlechter"],
+    ["Offene Positionen", String(s.open || 0), "", "gekauft, noch nicht verkauft"],
+    ["USDT-Guthaben", usdt ? usd(usdt.wallet) : "–", "", d.wallet ? "Stand " + agoIso(d.wallet.ts) : "noch kein Stand"],
+  ];
+  $("#bb-tiles").innerHTML = tiles.map(([k, v, c, n]) => `<div><dt>${esc(k)}</dt><dd class="${c}">${esc(v)}<small>${esc(n)}</small></dd></div>`).join("");
+
+  renderBbChart(d.pairs || []);
+
+  const open = d.open || [];
+  $("#bb-open").innerHTML = open.length
+    ? `<div class="scroll"><table class="rt" id="bb-open-table"><thead><tr><th>Eröffnet</th><th>Paar</th><th>Agent</th><th class="num">Kaufpreis</th><th class="num">Menge</th><th class="num">Stop-Loss</th><th class="num">Kursziel</th></tr></thead><tbody>${open.map((o) => `<tr>
+        ${tdl("Eröffnet", "nw", esc(T(o.opened_at)))}${tdl("Paar", "", `<b>${esc(SYM(o.symbol))}</b>`)}${tdl("Agent", "opt", esc(o.agent || ""))}
+        ${tdl("Kaufpreis", "num", esc(px(o.buy_price)))}${tdl("Menge", "num opt", esc(qty(o.qty)))}${tdl("Stop-Loss", "num", esc(px(o.sl_price)))}${tdl("Kursziel", "num", esc(px(o.tp_price)))}</tr>`).join("")}</tbody></table></div>`
+    : `<div class="empty">Keine offene Position auf Bybit.</div>`;
+
+  const pairs = d.pairs || [];
+  $("#bb-pairs").innerHTML = pairs.length
+    ? `<div class="scroll"><table class="rt" id="bb-pairs-table"><thead><tr><th>Geschlossen</th><th>Paar</th><th class="num">Kauf</th><th class="num">Verkauf</th><th class="num">Netto Bybit</th><th class="num">Netto Papier</th><th class="num">Gebühren</th><th>Grund</th></tr></thead><tbody>${pairs.map((p) => `<tr>
+        ${tdl("Geschlossen", "nw", esc(T(p.closed_at)))}${tdl("Paar", "", `<b>${esc(SYM(p.symbol))}</b>`)}
+        ${tdl("Kauf", "num opt", esc(px(p.buy_price)))}${tdl("Verkauf", "num opt", esc(px(p.sell_price)))}
+        ${tdl("Netto Bybit", `num ${clsPnl(p.net_usd)}`, `<b>${esc(usd(p.net_usd, true))}</b>`)}${tdl("Netto Papier", `num ${clsPnl(p.paper_net_usd)}`, esc(usd(p.paper_net_usd, true)))}
+        ${tdl("Gebühren", "num opt", esc(usd(p.fees_usd)))}${tdl("Grund", "opt", esc(BB_REASON[p.close_reason] || p.close_reason || "–"))}</tr>`).join("")}</tbody>
+        <tfoot><tr>${tdl("Summe", "", `${esc(pairs.length)} Trades`)}${tdl("", "opt", "")}${tdl("", "num opt", "")}${tdl("", "num opt", "")}
+        ${tdl("Netto Bybit", `num ${clsPnl(s.net_usd)}`, esc(usd(s.net_usd, true)))}${tdl("Netto Papier", `num ${clsPnl(s.paper_net_usd)}`, esc(usd(s.paper_net_usd, true)))}${tdl("Gebühren", "num opt", esc(usd(s.fees_usd)))}${tdl("", "opt", "")}</tr></tfoot></table></div>`
+    : `<div class="empty">Noch kein Trade auf Bybit abgeschlossen.</div>`;
+
+  const orders = d.orders || [];
+  $("#bb-orders").innerHTML = orders.length
+    ? `<div class="scroll"><table class="rt" id="bb-orders-table"><thead><tr><th>Zeit</th><th>Order</th><th>Status</th><th class="num">Menge</th><th class="num">Preis Bybit</th><th class="num">Preis Papier</th><th class="num">Abweichung</th></tr></thead><tbody>${orders.map((o) => {
+        const [txt, k] = BB_STATUS[o.status] || [o.status, "warn"];
+        return `<tr>${tdl("Zeit", "nw", esc(T(o.updated_at)))}${tdl("Order", "", `${o.side === "Buy" ? "Kauf" : o.side === "Sell" ? "Verkauf" : esc(o.side)} <b>${esc(SYM(o.symbol))}</b>`)}
+          ${tdl("Status", "", `<span class="chip ${k}">${esc(txt)}</span>${o.note ? `<small class="cell">${esc(o.note)}</small>` : ""}`)}
+          ${tdl("Menge", "num opt", esc(qty(o.fill_qty ?? o.req_qty)))}${tdl("Preis Bybit", "num", esc(px(o.fill_price)))}${tdl("Preis Papier", "num opt", esc(px(o.paper_price)))}${tdl("Abweichung", "num", esc(bp(o.slip_bps)))}</tr>`;
+      }).join("")}</tbody></table></div>`
+    : `<div class="empty">Noch keine Order. Sobald ein Agent einen Krypto-Trade eröffnet, steht sie hier.</div>`;
+
+  const coins = d.wallet?.coins || [];
+  $("#bb-wallet").innerHTML = coins.length
+    ? `<div class="scroll"><table class="rt" id="bb-wallet-table"><thead><tr><th>Münze</th><th class="num">Bestand</th><th class="num">Wert in USD</th></tr></thead><tbody>${coins.map((k) => `<tr>${tdl("Münze", "", `<b>${esc(k.coin)}</b>`)}${tdl("Bestand", "num", esc(qty(k.wallet)))}${tdl("Wert in USD", "num", esc(usd(k.usd)))}</tr>`).join("")}</tbody></table></div>
+      <p class="small muted" style="margin-top:6px">Gesamtwert ${esc(usd(d.wallet.total_equity_usd))}, Stand ${esc(T(d.wallet.ts, true))}. Darin steckt der Startbestand des Demo-Kontos, unter anderem 1 BTC, 1 ETH und 50.000 USDC. Der Wert schwankt mit dem Kurs und sagt nichts über die Agenten aus. Aussagekräftig ist das Ergebnis der Trades.</p>`
+    : `<div class="empty">Noch kein Kontostand gespeichert.</div>`;
+}
+
+function renderBbChart(pairs) {
+  const el = $("#bb-chart");
+  const asc = [...pairs].sort((a, b) => Date.parse(a.closed_at) - Date.parse(b.closed_at));
+  if (!asc.length) { el.innerHTML = `<div class="empty">Noch kein abgeschlossener Trade. Sobald ein Agent einen Krypto-Trade auf Bybit eröffnet und schließt, erscheint hier die Linie.</div>`; return; }
+  let b = 0, p = 0; const Bv = [0], Pv = [0];
+  for (const t of asc) { b += t.net_usd; p += t.paper_net_usd ?? 0; Bv.push(b); Pv.push(p); }
+  const W = Math.max(280, Math.floor((el.clientWidth || 680) - 26)), H = 230, L = 52, R = 14, Tp = 12, Bt = 28;
+  let lo = Math.min(0, ...Bv, ...Pv), hi = Math.max(0, ...Bv, ...Pv);
+  if (hi - lo < 1) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const n = Bv.length - 1;
+  const x = (i) => L + (n ? (i / n) * (W - L - R) : 0);
+  const y = (v) => Tp + (1 - (v - lo) / (hi - lo)) * (H - Tp - Bt);
+  const line = (arr) => arr.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const ticks = [...new Set([lo + pad, 0, hi - pad].map((v) => Math.round(v)))];
+  el.innerHTML = `<div class="chart"><div class="bb-legend"><span><i class="bb-sw"></i>Bybit <b class="${clsPnl(Bv[n])}">${esc(usd(Bv[n], true))}</b></span><span><i class="bb-sw dash"></i>Papier <b class="${clsPnl(Pv[n])}">${esc(usd(Pv[n], true))}</b></span></div>
+    <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-label="Summe der gespiegelten Trades: Bybit ${esc(usd(Bv[n], true))}, Papier ${esc(usd(Pv[n], true))} nach ${n} Trades">
+    ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="${v === 0 ? 1.6 : 1}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="var(--ink-3)">${esc(num(v, 0))}</text>`).join("")}
+    <path d="${line(Pv)}" fill="none" stroke="var(--s2)" stroke-width="2.4" stroke-dasharray="6 4" stroke-linejoin="round"/>
+    <path d="${line(Bv)}" fill="none" stroke="var(--s1)" stroke-width="3" stroke-linejoin="round"/>
+    ${Bv.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.4" fill="var(--s1)"/>`).join("")}
+    <text x="${L}" y="${H - 8}" font-size="12" fill="var(--ink-3)">Start</text><text x="${W - R}" y="${H - 8}" text-anchor="end" font-size="12" fill="var(--ink-3)">Trade ${n}</text></svg>
+    <p class="small muted" style="margin-top:4px">Werte in US-Dollar, kumuliert.</p></div>`;
+}
+
+/* ---------- areas of the app ---------- */
+const VIEWS = ["uebersicht", "trades", "maerkte", "bybit", "news", "einstellungen"];
+const SECTION_VIEW = { "s-capital": "uebersicht", "s-bbsum": "uebersicht", "s-agents": "uebersicht", "s-chart": "uebersicht", "s-pnl": "trades", "s-pos": "trades",
+  "s-markets": "maerkte", "s-lessons": "maerkte", "s-bybit": "bybit", "s-news": "news", "s-notes": "news", "s-settings": "einstellungen" };
+function showView(name) {
+  const v = VIEWS.includes(name) ? name : "uebersicht";
+  const changed = state.view !== v;
+  state.view = v;
+  document.querySelectorAll(".view").forEach((el) => (el.hidden = el.dataset.view !== v));
+  document.querySelectorAll(".vbar a").forEach((a) => (a.dataset.v === v ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
+  const cur = document.querySelector(`.vbar a[data-v="${v}"]`);
+  if (cur && cur.parentElement) { const bar = cur.parentElement; bar.scrollLeft = Math.max(0, cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2); }
+  if (changed) {
+    const nav = $(".views");
+    const top = nav.parentElement ? nav.previousElementSibling.getBoundingClientRect().bottom + window.scrollY : 0;
+    if (window.scrollY > top) window.scrollTo(0, top);
+    if (v === "bybit") { if (bb.data) renderBybit(); bbLoad(); }
+  }
+}
+function routeFromHash() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (SECTION_VIEW[h]) { showView(SECTION_VIEW[h]); const el = document.getElementById(h); if (el) el.scrollIntoView(); return; }
+  showView(h || "uebersicht");
+}
+window.addEventListener("hashchange", routeFromHash);
+let bbResizeT = null;
+window.addEventListener("resize", () => { clearTimeout(bbResizeT); bbResizeT = setTimeout(() => { if (bb.data && state.view === "bybit") renderBbChart(bb.data.pairs || []); }, 150); });
 
 /* ---------- main render ---------- */
 function render() {
@@ -973,6 +1256,7 @@ function render() {
 async function load(manual) {
   if (state.busy) return;
   state.busy = true;
+  bbLoad(); // the bybit area refreshes alongside, independently: its failures never block the main view
   try {
     const r = await api(OVERVIEW);
     if (r.status === 401) { logout("Der Zugangscode wurde nicht akzeptiert."); return; }
@@ -997,11 +1281,12 @@ async function act(body, okTitle) {
   } catch (e) { toast("Keine Verbindung", "Die Aktion wurde nicht bestätigt. Bitte prüfe den Status."); }
   state.busy = false;
   await load(true);
+  btns.forEach((b) => { if (b.isConnected) b.disabled = false; }); // static buttons (Abmelden, Bybit-Schalter) are not re-rendered
 }
 
-function showApp() { $("#gate").hidden = true; $("#app").hidden = false; load(); clearInterval(state.timer); state.timer = setInterval(() => { if (!document.hidden) load(); }, POLL_MS); }
+function showApp() { $("#gate").hidden = true; $("#app").hidden = false; routeFromHash(); load(); clearInterval(state.timer); state.timer = setInterval(() => { if (!document.hidden) load(); }, POLL_MS); }
 function logout(msg) {
-  store.clear(); clearInterval(state.timer); state.data = null;
+  store.clear(); clearInterval(state.timer); state.data = null; bb.data = null; bb.err = null;
   $("#app").hidden = true; $("#gate").hidden = false; $("#tok").value = "";
   const e = $("#gate-err"); if (msg) { e.textContent = msg; e.hidden = false; } else e.hidden = true;
 }
@@ -1010,6 +1295,7 @@ function logout(msg) {
 document.addEventListener("click", (ev) => {
   const t = ev.target.closest("button"); if (!t) return;
   if (t.id === "logout") return logout();
+  if (t.id === "bb-toggle") return bbToggle();
   if (t.id === "b-start") { if (confirm("Simulation starten? Der Kill-Switch wird ausgeschaltet. Es wird nur mit virtuellem Geld gehandelt, es gibt keine echten Orders.")) act({ action: "start" }, "Simulation gestartet"); return; }
   if (t.id === "b-stop") return act({ action: "stop" }, "Alles gestoppt, Kill-Switch an");
   if (t.id === "b-perm") { Notification.requestPermission().then(() => render()); return; }

@@ -5,7 +5,7 @@ Handelsagenten, die rund um die Uhr Krypto- und Devisenkurse auswerten, Trades i
 | | |
 |---|---|
 | App | https://russki741.github.io/Ki-Projekte/trading-agent/app/ |
-| Bybit-Demo-Seite | https://russki741.github.io/Ki-Projekte/trading-agent/app/bybit.html |
+| Bereiche | Übersicht · Trades · Märkte · Bybit-Demo · Nachrichten · Einstellungen (direkt erreichbar, z. B. `…/app/#bybit`) |
 | Backend | Supabase-Projekt `lmgmeegwufbthxqlilkj` (kostenloser Tarif) |
 | Zugang | Dashboard-Zugangscode (nur sein SHA-256-Hash liegt im Supabase Vault) |
 
@@ -33,8 +33,10 @@ Details: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) · Bedienung und Notfälle: 
 ```
 trading-agent/
 ├── app/                    Web-App für GitHub Pages
-│   ├── index.html          Haupt-Dashboard (Agenten, Trades, Kapital, Nachrichten, Start/Stopp)
-│   └── bybit.html          Bybit-Demo: Konto, gespiegelte Orders, Bybit gegen Papier, Schalter
+│   ├── index.html          die App: Status und Start/Stopp oben, darunter die Bereiche
+│   │                       Übersicht, Trades, Märkte, Bybit-Demo, Nachrichten, Einstellungen
+│   └── bybit.html          alte Adresse, leitet in den Bereich Bybit-Demo weiter
+├── tests/                  Browser-Tests der App mit Testdaten (keine echten Daten, kein Netz)
 ├── artifacts/
 │   └── bybit-live.html     Quelltext der privaten Live-Ansicht in Claude (liest über den Supabase-Connector)
 ├── supabase/
@@ -53,7 +55,13 @@ node --experimental-strip-types --test agent-tick/strategy.test.ts news-scan/new
 node --experimental-strip-types backtest/sim.test.mjs
 ```
 
-Stand 3. November 2026: 48 Tests, alle bestanden.
+Browser-Tests der App (Playwright mit Chromium):
+
+```bash
+node tests/app.test.cjs
+```
+
+Stand 3. November 2026: 48 Tests der Funktionen und 90 Tests der App, alle bestanden.
 
 ## Regeln für Änderungen
 

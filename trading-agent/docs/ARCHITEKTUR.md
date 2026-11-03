@@ -56,7 +56,7 @@ flowchart LR
 | news-scan | 1 | Nachrichten lesen und bewerten | Zeitplan, alle 10 Min |
 | probe | 3 | Datenquellen prüfen (alte Tabelle `trading_sim`) | Zeitplan, 1 bzw. 5 Min |
 | dashboard-api | 6 | Daten und Steuerung für die App | App |
-| bybit-view | 3 | Daten und Schalter für die Bybit-Seite | App |
+| bybit-view | 3 | Daten und Schalter für den Bereich Bybit-Demo | App |
 | backtest | 1 | Strategie auf gespeicherter 1-Min-Historie nachspielen | auf Abruf |
 | strategy-lab | 1 | Bekannte Strategien auf höheren Zeiteinheiten testen | auf Abruf |
 

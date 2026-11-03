@@ -2,7 +2,7 @@
 
 ## Täglich
 
-In der App unter **Status** sieht man, ob die Agenten laufen und wann der letzte Minutenlauf war. Auf der Bybit-Seite steht oben, ob das Spiegeln läuft und wann es sich zuletzt gemeldet hat. Wird ein roter Hinweis gezeigt, steht dort auch die Ursache.
+Oben in der App sieht man, ob die Agenten laufen und wann der letzte Minutenlauf war. Der Punkt am Bereich **Bybit-Demo** ist grün, wenn das Spiegeln läuft, und rot bei einem Problem. Im Bereich selbst steht dann die Ursache.
 
 ## Notbremse
 
@@ -16,7 +16,7 @@ update agent_core.settings set kill_switch = true where id;
 
 ## Spiegeln auf Bybit ein- und ausschalten
 
-Auf der Bybit-Seite mit dem Schalter. Ausschalten geht nur, wenn auf Bybit nichts offen ist, damit keine Position liegen bleibt.
+Im Bereich **Bybit-Demo** mit dem Schalter. Ausschalten geht nur, wenn auf Bybit nichts offen ist, damit keine Position liegen bleibt.
 
 Im SQL-Editor, mit derselben Sicherung:
 

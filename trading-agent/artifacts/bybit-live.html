@@ -1,0 +1,413 @@
+<title>Bybit Demo Live</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: one calm column. Status first, then tiles, result chart, and the tables a trader checks in order: open, closed, orders, account. */
+:root{
+  --bg:#F2F4F1; --surface:#FFFFFF; --ink:#16211E; --ink-2:#4B5953; --ink-3:#66726D; --line:#DCE2DE; --line-2:#C9D2CD;
+  --accent:#0C6A5D; --accent-ink:#FFFFFF; --accent-soft:#DCEFEA;
+  --gain:#177A3E; --loss:#B42318; --warn:#8F5600; --warn-soft:#F8EBD2; --loss-soft:#FADDDA;
+  --s1:#0C6A5D; --s2:#2F5FB3;
+  --font:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1513; --surface:#161F1C; --ink:#E6ECE9; --ink-2:#B0BCB6; --ink-3:#8A9892; --line:#26332F; --line-2:#334440;
+    --accent:#4FC3AE; --accent-ink:#06201B; --accent-soft:#17332D;
+    --gain:#4CC27A; --loss:#F0716A; --warn:#E3A93B; --warn-soft:#3A2D12; --loss-soft:#3D1A18;
+    --s1:#4FC3AE; --s2:#7FA6EA; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1513; --surface:#161F1C; --ink:#E6ECE9; --ink-2:#B0BCB6; --ink-3:#8A9892; --line:#26332F; --line-2:#334440;
+  --accent:#4FC3AE; --accent-ink:#06201B; --accent-soft:#17332D;
+  --gain:#4CC27A; --loss:#F0716A; --warn:#E3A93B; --warn-soft:#3A2D12; --loss-soft:#3D1A18;
+  --s1:#4FC3AE; --s2:#7FA6EA; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--font);font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.25rem}
+p{margin:0}
+a{color:var(--accent)}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:0 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.muted{color:var(--ink-3)} .small{font-size:.875rem}
+.gain{color:var(--gain)} .loss{color:var(--loss)}
+
+.top{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.top h1{font-size:1rem;min-width:0}
+.simtag{display:inline-block;padding:4px 10px;border-radius:999px;background:var(--accent-soft);font-size:.875rem;font-weight:600}
+.btn{border:1px solid var(--line-2);background:var(--surface);padding:9px 16px;border-radius:8px;font-weight:600}
+.btn:hover{border-color:var(--ink-3)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.link{border:0;background:none;padding:6px 8px;color:var(--ink-2);font-weight:500}
+
+.hero{padding:26px 0 6px}
+.state{font-size:clamp(2.2rem,7vw,3.8rem);line-height:1;font-weight:700;letter-spacing:-.03em}
+.state.on{color:var(--accent)}
+.state-sub{margin-top:10px;color:var(--ink-2);max-width:62ch}
+.banner{margin-top:16px;padding:12px 14px;border-radius:8px;background:var(--warn-soft);border:1px solid var(--warn)}
+.banner.bad{background:var(--loss-soft);border-color:var(--loss)}
+.banner .btn{margin-top:10px}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:22px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.tile .k{font-size:.875rem;color:var(--ink-3)}
+.tile .v{font-size:1.5rem;font-weight:700;letter-spacing:-.02em;margin-top:2px}
+.tile .n{font-size:.8125rem;color:var(--ink-3);margin-top:2px}
+
+section{margin-top:30px}
+section > h2{margin-bottom:4px}
+section > .lead{color:var(--ink-3);font-size:.9375rem;margin-bottom:10px;max-width:70ch}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.9375rem}
+th,td{padding:9px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--ink-2);font-size:.8125rem;background:var(--bg)}
+th:first-child,td:first-child,th.l,td.l{text-align:left}
+tr:last-child td{border-bottom:0}
+.empty{padding:18px;color:var(--ink-3)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.8125rem;font-weight:600;background:var(--accent-soft)}
+.pill.bad{background:var(--loss-soft);color:var(--loss)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+svg text{font-family:var(--font)}
+.foot{margin-top:34px;color:var(--ink-3);font-size:.875rem;max-width:80ch}
+.foot p + p{margin-top:6px}
+.legend{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;font-size:.9375rem}
+.sw{display:inline-block;width:24px;height:0;border-top:3px solid var(--s1);vertical-align:middle;margin-right:6px}
+.sw.dash{border-top:3px dashed var(--s2)}
+.note{display:block;white-space:normal;color:var(--ink-3);font-size:.8125rem;margin-top:2px;max-width:170px}
+.ms{display:none}
+@media (max-width:640px){
+  table{min-width:0;font-size:.875rem}
+  th,td{padding:9px 6px}
+  .hs{display:none}
+  .ms{display:block}
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Bybit-Demo <span class="simtag">Spielgeld, kein echtes Geld</span></h1>
+    <div>
+      <span class="muted small" id="fresh" aria-live="polite"></span>
+      <button class="btn link" id="reload" type="button">Jetzt aktualisieren</button>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="state" id="state">…</div>
+    <p class="state-sub" id="stateSub">Daten werden geladen.</p>
+  </div>
+  <div id="banners"></div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section aria-labelledby="h-chart">
+    <h2 id="h-chart">Ergebnis der gespiegelten Trades</h2>
+    <p class="lead">Summe nach jedem abgeschlossenen Trade, netto nach Gebühren. Bybit ist das, was auf deinem Demo-Konto wirklich passiert ist. Papier ist das, was die Rechnung des Agenten für dieselben Trades ergibt.</p>
+    <div class="card" id="chart"></div>
+  </section>
+
+  <section aria-labelledby="h-open">
+    <h2 id="h-open">Jetzt offen auf Bybit</h2>
+    <div id="open"></div>
+  </section>
+
+  <section aria-labelledby="h-pairs">
+    <h2 id="h-pairs">Abgeschlossene Trades (gekauft und verkauft auf Bybit)</h2>
+    <p class="lead">Netto = Veränderung deines USDT-Guthabens durch diesen Trade, inklusive Gebühren. Der Unterschied zu Papier entsteht durch Preisabweichung und Gebühren.</p>
+    <div id="pairs"></div>
+  </section>
+
+  <section aria-labelledby="h-orders">
+    <h2 id="h-orders">Alle Orders</h2>
+    <p class="lead">Abweichung zum Papier-Preis: plus heißt, Bybit war für uns schlechter als die Rechnung des Agenten.</p>
+    <div id="orders"></div>
+  </section>
+
+  <section aria-labelledby="h-wallet">
+    <h2 id="h-wallet">Demo-Konto</h2>
+    <div id="wallet"></div>
+  </section>
+
+  <div class="foot">
+    <p>Alles hier ist Spielgeld auf dem Bybit-Demo-Konto, ohne Hebel und nur Käufe (Spot). Eine Order wird erst gesendet, wenn der Agent im Papier-Modell einen Trade eröffnet oder schließt. Bybit-Ausführungen kommen deshalb bis zu 30 Sekunden später.</p>
+    <p>Diese Seite ist nur eine Ansicht. Sie liest die Daten alle 20 Sekunden über deine Supabase-Verbindung und ändert nichts. Das Spiegeln ein- oder ausschalten lässt du im Chat mit Claude.</p>
+    <p>Das Ergebnis ist keine Prognose und keine Anlageberatung.</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const SERVER = "Supabase", TOOL = "execute_sql", PROJECT = "lmgmeegwufbthxqlilkj";
+const SQL = `with
+cfg as (select enabled, enabled_since, last_reconcile_at, last_error, max_entry_age_s from agent_core.exchange_config where id),
+st as (select paper_only, kill_switch from agent_core.settings where id),
+w as (select ts, total_equity_usd::float8 as total_equity_usd, coins from agent_core.exchange_wallet_snapshots order by ts desc limit 1),
+ord as (
+  select o.id::int as id, o.position_id::int as position_id, o.leg, o.symbol, o.side, o.status, o.note, o.attempts::int as attempts,
+         o.req_qty::float8 as req_qty, o.fill_qty::float8 as fill_qty, o.fill_price::float8 as fill_price, o.paper_price::float8 as paper_price,
+         o.slip_bps_vs_paper::float8 as slip_bps, o.fee_quote::float8 as fee_quote, o.fee_base::float8 as fee_base, o.created_at, o.updated_at, a.name as agent
+  from agent_core.exchange_orders o
+  join agent_core.positions p on p.id = o.position_id
+  left join agent_core.agents a on a.id = p.agent_id
+  order by o.id desc limit 60),
+prs as (
+  select i.position_id::int as position_id, i.symbol, a.name as agent, i.created_at as opened_at, o.updated_at as closed_at,
+         i.fill_price::float8 as buy_price, o.fill_price::float8 as sell_price, i.fill_qty::float8 as qty_in, o.fill_qty::float8 as qty_out,
+         (o.fill_value + greatest(0, coalesce(i.net_base_qty, 0) - o.fill_qty) * o.fill_price - i.fill_value - coalesce(i.fee_quote, 0) - coalesce(o.fee_quote, 0))::float8 as net_usd,
+         (coalesce(i.fee_quote, 0) + coalesce(i.fee_base, 0) * i.fill_price + coalesce(o.fee_quote, 0) + coalesce(o.fee_base, 0) * o.fill_price)::float8 as fees_usd,
+         p.pnl_usd::float8 as paper_net_usd, i.slip_bps_vs_paper::float8 as slip_in_bps, o.slip_bps_vs_paper::float8 as slip_out_bps, p.close_reason
+  from agent_core.exchange_orders i
+  join agent_core.exchange_orders o on o.position_id = i.position_id and o.leg = 'out' and o.status in ('filled', 'partial')
+  join agent_core.positions p on p.id = i.position_id
+  left join agent_core.agents a on a.id = p.agent_id
+  where i.leg = 'in' and i.status in ('filled', 'partial')
+  order by o.updated_at desc limit 100),
+opn as (
+  select i.position_id::int as position_id, i.symbol, a.name as agent, i.created_at as opened_at, i.fill_price::float8 as buy_price, i.net_base_qty::float8 as qty,
+         p.sl_price::float8 as sl_price, p.tp_price::float8 as tp_price
+  from agent_core.exchange_orders i
+  join agent_core.positions p on p.id = i.position_id
+  left join agent_core.agents a on a.id = p.agent_id
+  left join agent_core.exchange_orders o on o.position_id = i.position_id and o.leg = 'out'
+  where i.leg = 'in' and i.status in ('filled', 'partial') and (o.id is null or o.status not in ('filled', 'partial', 'skipped'))
+  order by i.created_at desc)
+select jsonb_build_object(
+  'now', now(),
+  'config', (select to_jsonb(cfg) from cfg),
+  'settings', (select to_jsonb(st) from st),
+  'wallet', (select to_jsonb(w) from w),
+  'orders', coalesce((select jsonb_agg(to_jsonb(ord) order by ord.id desc) from ord), '[]'::jsonb),
+  'pairs', coalesce((select jsonb_agg(to_jsonb(prs) order by prs.closed_at desc) from prs), '[]'::jsonb),
+  'open', coalesce((select jsonb_agg(to_jsonb(opn) order by opn.opened_at desc) from opn), '[]'::jsonb),
+  'avg_slip_bps', (select avg(slip_bps_vs_paper)::float8 from agent_core.exchange_orders where status in ('filled', 'partial'))
+) as o`;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const NF = {}; const nf = (d) => NF[d] || (NF[d] = new Intl.NumberFormat("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d }));
+const sign = (x) => (x > 0 ? "+" : x < 0 ? "−" : "");
+const usd = (x, d = 2) => (x == null ? "–" : (x < 0 ? "−" : "") + nf(d).format(Math.abs(x)) + " $");
+const susd = (x) => (x == null ? "–" : sign(Math.round(x * 100)) + nf(2).format(Math.abs(x)) + " $");
+const price = (x) => (x == null ? "–" : nf(x >= 100 ? 2 : x >= 1 ? 4 : 6).format(x));
+const bp = (x) => (x == null ? "–" : sign(Math.round(x * 10)) + nf(1).format(Math.abs(x)) + " bp");
+const qty = (x) => (x == null ? "–" : new Intl.NumberFormat("de-DE", { maximumFractionDigits: 6 }).format(x));
+const cls = (x) => (x > 0 ? "gain" : x < 0 ? "loss" : "");
+const when = (iso) => {
+  if (!iso) return "–";
+  const o = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
+  if (window.innerWidth > 640) o.second = "2-digit";
+  return new Date(iso).toLocaleString("de-DE", o).replace(", ", " ");
+};
+function ago(iso, now) {
+  if (!iso) return "noch nie";
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  return s < 90 ? `vor ${s} s` : s < 5400 ? `vor ${Math.round(s / 60)} Min` : `vor ${Math.round(s / 3600)} Std`;
+}
+const STATUS = { filled: ["ausgeführt", ""], partial: ["teilweise", "warn"], sending: ["wird gesendet", "warn"], error: ["Fehler", "bad"], skipped: ["übersprungen", "warn"] };
+const REASON = { stop: "Stop-Loss", target: "Ziel", time: "Zeit", signal: "Signal" };
+const SIDE = { Buy: "Kauf", Sell: "Verkauf" };
+
+const state = { data: null, busy: false, timer: null, failed: 0, mcp: null, err: null };
+
+// ---- reading the connector answer. execute_sql wraps its rows in text with <untrusted-data-...> tags; accept every plausible envelope.
+function rowsFrom(res) {
+  const cands = [];
+  const p = res && res.payload;
+  if (Array.isArray(p)) return p;
+  if (typeof p === "string") cands.push(p);
+  if (p && typeof p.result === "string") cands.push(p.result);
+  const sc = res && res.structuredContent;
+  if (sc && typeof sc.result === "string") cands.push(sc.result);
+  for (const b of (res && res.content) || []) {
+    if (b && b.type === "text" && typeof b.text === "string") {
+      cands.push(b.text);
+      try { const j = JSON.parse(b.text); if (j && typeof j.result === "string") cands.push(j.result); } catch {}
+    }
+  }
+  for (const s of cands) {
+    // the intro sentence names the tag once before the data block: use the last opening tag in front of the closing tag
+    const close = s.lastIndexOf("</untrusted-data-");
+    const open = close > 0 ? s.lastIndexOf("<untrusted-data-", close) : -1;
+    const start = open >= 0 ? s.indexOf(">", open) + 1 : 0;
+    const body = close > 0 && start > 0 ? s.slice(start, close).trim() : s.slice(Math.max(0, s.indexOf("[")), s.lastIndexOf("]") + 1);
+    try { const v = JSON.parse(body); if (Array.isArray(v)) return v; } catch {}
+  }
+  return null;
+}
+function build(raw) {
+  const pairs = raw.pairs || [], open = raw.open || [];
+  return {
+    now: raw.now, config: raw.config || {}, settings: raw.settings || {}, wallet: raw.wallet || null,
+    orders: raw.orders || [], pairs, open,
+    stats: {
+      pairs: pairs.length, wins: pairs.filter((p) => p.net_usd > 0).length,
+      net_usd: pairs.reduce((s, p) => s + p.net_usd, 0), paper_net_usd: pairs.reduce((s, p) => s + (p.paper_net_usd ?? 0), 0),
+      fees_usd: pairs.reduce((s, p) => s + p.fees_usd, 0), avg_slip_bps: raw.avg_slip_bps ?? null, open: open.length,
+    },
+  };
+}
+
+async function fetchOnce() {
+  if (!window.claude || typeof window.claude.use !== "function") throw { code: "no_claude" };
+  if (!state.mcp) state.mcp = await window.claude.use("mcp");
+  if (!state.mcp) throw { code: "no_mcp" };
+  const res = await state.mcp.callTool(SERVER, TOOL, { project_id: PROJECT, query: SQL });
+  const rows = rowsFrom(res);
+  if (!rows || !rows[0]) throw { code: "bad_shape", message: "Die Antwort von Supabase hatte ein unerwartetes Format." };
+  let o = rows[0].o !== undefined ? rows[0].o : rows[0];
+  if (typeof o === "string") o = JSON.parse(o);
+  return build(o);
+}
+
+// ---- tables and chart
+function table(head, rows, empty) {
+  if (!rows.length) return `<div class="tablewrap"><div class="empty">${esc(empty)}</div></div>`;
+  const cl = (h) => [h.l ? "l" : "", h.s ? "hs" : ""].filter(Boolean).join(" ");
+  const body = rows.map((r) => `<tr>${r.map((c, i) => { const k = [head[i].l ? "l" : "", head[i].s ? "hs" : "", c[1] || ""].filter(Boolean).join(" "); return `<td${k ? ` class="${k}"` : ""}>${c[0]}</td>`; }).join("")}</tr>`).join("");
+  return `<div class="tablewrap" tabindex="0" role="region" aria-label="Tabelle, seitlich scrollbar"><table><thead><tr>${head.map((h) => `<th scope="col"${cl(h) ? ` class="${cl(h)}"` : ""}>${esc(h.t)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function renderChart(pairs) {
+  const el = $("chart");
+  const asc = [...pairs].sort((a, b) => new Date(a.closed_at) - new Date(b.closed_at));
+  if (asc.length < 1) { el.innerHTML = `<p class="muted">Noch kein abgeschlossener Trade. Sobald ein Agent einen Krypto-Trade auf Bybit eröffnet und schließt, erscheint hier die Linie.</p>`; return; }
+  let b = 0, p = 0; const B = [0], P = [0];
+  for (const t of asc) { b += t.net_usd; p += t.paper_net_usd ?? 0; B.push(b); P.push(p); }
+  const W = Math.max(260, Math.floor((el.clientWidth || 640) - 30)), H = 220, L = 48, R = 14, T = 12, Bt = 28;
+  const all = [...B, ...P, 0]; let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const n = B.length - 1;
+  const x = (i) => L + (n === 0 ? 0 : (i / n) * (W - L - R));
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - Bt);
+  const line = (arr) => arr.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const ticks = [lo + pad, 0, hi - pad].filter((v, i, a) => a.indexOf(v) === i);
+  el.innerHTML = `<div class="legend"><span><i class="sw"></i>Bybit <strong class="${cls(B[n])}">${esc(susd(B[n]))}</strong></span><span><i class="sw dash"></i>Papier <strong class="${cls(P[n])}">${esc(susd(P[n]))}</strong></span></div>
+    <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-labelledby="ct ct2"><title id="ct">Ergebnis der gespiegelten Trades</title><desc id="ct2">Bybit ${esc(susd(B[n]))}, Papier ${esc(susd(P[n]))} nach ${n} Trades.</desc>
+    ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" ${v === 0 ? 'stroke-width="1.5"' : ""}/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="var(--ink-3)">${esc(nf(0).format(v))}</text>`).join("")}
+    <path d="${line(P)}" fill="none" stroke="var(--s2)" stroke-width="2.5" stroke-dasharray="6 4" stroke-linejoin="round"/>
+    <path d="${line(B)}" fill="none" stroke="var(--s1)" stroke-width="3" stroke-linejoin="round"/>
+    ${B.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--s1)"/>`).join("")}
+    <text x="${L}" y="${H - 8}" font-size="12" fill="var(--ink-3)">Start</text><text x="${W - R}" y="${H - 8}" text-anchor="end" font-size="12" fill="var(--ink-3)">Trade ${n}</text></svg>`;
+}
+
+// ---- connection problems get their own message per cause
+function errorBanner(e) {
+  const code = e && e.code;
+  const retry = `<br><button class="btn" type="button" data-retry>Erneut versuchen</button>`;
+  if (code === "no_claude" || code === "no_mcp" || code === "not_granted" || code === "capability_disabled" || code === "capability_removed")
+    return `<div class="banner bad" role="alert"><strong>Diese Ansicht kann keine Verbindung zu Supabase aufbauen.</strong> Öffne die Seite in der Claude-App oder auf claude.ai, angemeldet mit deinem Konto.</div>`;
+  if (code === "server_not_connected" || code === "selection_required" || code === "server_not_found")
+    return `<div class="banner bad" role="alert"><strong>Supabase ist in Claude nicht verbunden.</strong> Füge Supabase unter Einstellungen → Konnektoren hinzu und öffne die Seite danach neu.</div>`;
+  if (code === "needs_reauth")
+    return `<div class="banner bad" role="alert"><strong>Die Supabase-Anmeldung ist abgelaufen.</strong> Verbinde Supabase unter Einstellungen → Konnektoren neu.</div>`;
+  if (code === "not_in_manifest" || code === "approval_required" || code === "consent_required")
+    return `<div class="banner" role="alert"><strong>Der Zugriff auf Supabase ist für diese Seite nicht erlaubt.</strong> Die Seite braucht dein Okay, um die Daten zu lesen.${retry}</div>`;
+  if (code === "blocked_by_policy")
+    return `<div class="banner bad" role="alert"><strong>Deine Organisation blockiert den Zugriff auf Supabase.</strong></div>`;
+  if (code === "tool_error")
+    return `<div class="banner bad" role="alert"><strong>Supabase hat die Abfrage abgelehnt:</strong> ${esc(String(e.message || "").slice(0, 200))}${retry}</div>`;
+  if (code === "bad_shape")
+    return `<div class="banner bad" role="alert"><strong>${esc(e.message)}</strong>${retry}</div>`;
+  return `<div class="banner bad" role="alert"><strong>Verbindung zu Supabase gerade nicht möglich.</strong> Neuer Versuch in einer Minute.${retry}</div>`;
+}
+
+function render(d, err) {
+  const now = new Date(d.now).getTime();
+  const c = d.config || {}, st = d.settings || {}, s = d.stats || {};
+  const on = c.enabled === true;
+  const stale = on && (!c.last_reconcile_at || now - new Date(c.last_reconcile_at).getTime() > 120000);
+
+  $("state").textContent = on ? "Spiegeln AN" : "Spiegeln AUS";
+  $("state").className = "state" + (on ? " on" : "");
+  $("stateSub").textContent = on
+    ? `Eröffnet oder schließt ein Agent einen Krypto-Trade (BTC, ETH, SOL), wird dieselbe Order auf dem Bybit-Demo-Konto ausgeführt. Letzte Prüfung ${ago(c.last_reconcile_at, now)}. Läuft seit ${when(c.enabled_since)}.`
+    : "Es werden keine Orders an Bybit gesendet. Die Agenten rechnen weiter im Papier-Modell.";
+
+  const ban = [];
+  if (err) ban.push(errorBanner(err));
+  if (c.last_error) ban.push(`<div class="banner bad" role="alert"><strong>Fehler beim Spiegeln:</strong> ${esc(c.last_error)}</div>`);
+  if (stale) ban.push(`<div class="banner bad" role="alert"><strong>Das Spiegeln meldet sich nicht.</strong> Letzte Prüfung ${esc(ago(c.last_reconcile_at, now))}. Neue Trades werden gerade nicht an Bybit gesendet.</div>`);
+  if (st.kill_switch) ban.push(`<div class="banner" role="status"><strong>Notbremse ist aktiv.</strong> Neue Käufe auf Bybit werden übersprungen.</div>`);
+  if (st.paper_only === false) ban.push(`<div class="banner bad" role="alert"><strong>Schutzschalter „nur Papier“ ist aus.</strong> Das Spiegeln sendet deshalb nichts.</div>`);
+  $("banners").innerHTML = ban.join("");
+
+  const usdt = (d.wallet?.coins || []).find((x) => x.coin === "USDT");
+  const diff = s.pairs ? s.net_usd - s.paper_net_usd : null;
+  const tiles = [
+    ["Ergebnis auf Bybit", `<span class="${cls(s.net_usd)}">${s.pairs ? esc(susd(s.net_usd)) : "–"}</span>`, `${s.pairs || 0} abgeschlossene Trades, ${s.wins || 0} im Plus`],
+    ["Papier, gleiche Trades", `<span class="${cls(s.paper_net_usd)}">${s.pairs ? esc(susd(s.paper_net_usd)) : "–"}</span>`, diff == null ? "" : `Bybit ist ${esc(susd(diff))} gegenüber Papier`],
+    ["Gebühren bezahlt", esc(usd(s.fees_usd || 0)), "0,1 % je Order"],
+    ["Ø Preisabweichung", esc(bp(s.avg_slip_bps)), "zum Papier-Preis, plus = schlechter"],
+    ["Offene Positionen", String(s.open || 0), "auf Bybit gekauft, noch nicht verkauft"],
+    ["USDT-Guthaben", esc(usdt ? usd(usdt.wallet) : "–"), d.wallet ? `Stand ${esc(ago(d.wallet.ts, now))}` : "noch kein Stand"],
+  ];
+  $("tiles").innerHTML = tiles.map(([k, v, n]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+  renderChart(d.pairs || []);
+
+  const T = (v, k) => [v, k];
+  $("open").innerHTML = table(
+    [{ t: "Eröffnet", l: 1 }, { t: "Agent", l: 1, s: 1 }, { t: "Paar", l: 1 }, { t: "Kaufpreis" }, { t: "Menge", s: 1 }, { t: "Stop / Ziel" }],
+    (d.open || []).map((o) => [T(esc(when(o.opened_at))), T(esc(o.agent)), T(esc(o.symbol)), T(esc(price(o.buy_price))), T(esc(qty(o.qty))), T(`${esc(price(o.sl_price))}<span class="note">Ziel ${esc(price(o.tp_price))}</span>`)]),
+    "Keine offene Position auf Bybit.");
+
+  $("pairs").innerHTML = table(
+    [{ t: "Geschlossen", l: 1 }, { t: "Agent", l: 1, s: 1 }, { t: "Paar", l: 1 }, { t: "Kauf", s: 1 }, { t: "Verkauf", s: 1 }, { t: "Menge", s: 1 }, { t: "Netto Bybit" }, { t: "Netto Papier" }, { t: "Gebühren", s: 1 }, { t: "Grund", l: 1, s: 1 }],
+    (d.pairs || []).map((p) => [T(esc(when(p.closed_at))), T(esc(p.agent)), T(esc(p.symbol)), T(esc(price(p.buy_price))), T(esc(price(p.sell_price))), T(esc(qty(p.qty_out))), T(`<strong>${esc(susd(p.net_usd))}</strong>`, cls(p.net_usd)), T(esc(susd(p.paper_net_usd)), cls(p.paper_net_usd)), T(esc(usd(p.fees_usd))), T(esc(REASON[p.close_reason] || p.close_reason || "–"))]),
+    "Noch kein Trade abgeschlossen.");
+
+  $("orders").innerHTML = table(
+    [{ t: "Zeit", l: 1 }, { t: "Agent", l: 1, s: 1 }, { t: "Order", l: 1 }, { t: "Status", l: 1 }, { t: "Menge", s: 1 }, { t: "Preis Bybit" }, { t: "Preis Papier", s: 1 }, { t: "Abweichung", s: 1 }],
+    (d.orders || []).map((o) => { const [txt, k] = STATUS[o.status] || [o.status, "warn"]; return [T(esc(when(o.updated_at))), T(esc(o.agent)), T(`${esc(SIDE[o.side] || o.side)} ${esc(o.symbol)}`), T(`<span class="pill ${k}">${esc(txt)}</span>${o.note ? `<span class="note">${esc(o.note)}</span>` : ""}`), T(esc(qty(o.fill_qty ?? o.req_qty))), T(`${esc(price(o.fill_price))}<span class="note ms">${esc(bp(o.slip_bps))}</span>`), T(esc(price(o.paper_price))), T(esc(bp(o.slip_bps)))]; }),
+    "Noch keine Order. Sobald ein Agent einen Krypto-Trade eröffnet, steht er hier.");
+
+  const coins = d.wallet?.coins || [];
+  $("wallet").innerHTML = coins.length
+    ? table([{ t: "Münze", l: 1 }, { t: "Bestand" }, { t: "Wert (USD)" }], coins.map((k) => [T(esc(k.coin)), T(esc(qty(k.wallet))), T(esc(usd(k.usd)))]), "")
+      + `<p class="muted small" style="margin-top:8px">Gesamtwert ${esc(usd(d.wallet.total_equity_usd))}. Darin steckt der Startbestand des Demo-Kontos, unter anderem 1 BTC, 1 ETH und 50.000 USDC. Der Wert schwankt mit dem Kurs und sagt nichts über die Agenten. Aussagekräftig ist das Ergebnis der Trades oben.</p>`
+    : `<div class="tablewrap"><div class="empty">Noch kein Kontostand gespeichert.</div></div>`;
+}
+
+function renderFailure(err) {
+  if (state.data) { render(state.data, err); return; }
+  $("state").textContent = "Keine Daten";
+  $("state").className = "state";
+  $("stateSub").textContent = "Die Seite konnte die Bybit-Daten noch nicht laden.";
+  $("banners").innerHTML = errorBanner(err);
+}
+
+async function refresh() {
+  if (state.busy) return; state.busy = true;
+  $("reload").disabled = true;
+  let retryMs = 0;
+  try {
+    const d = await fetchOnce();
+    state.data = d; state.failed = 0; render(d, null);
+    $("fresh").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
+  } catch (e) {
+    state.failed++;
+    if (e && e.retryable && state.failed < 2) retryMs = Math.min(e.retryAfterMs || 4000, 15000);
+    renderFailure(e || { code: "unknown" });
+    $("fresh").textContent = "nicht aktuell";
+  } finally { state.busy = false; $("reload").disabled = false; schedule(retryMs); }
+}
+function schedule(ms) {
+  clearTimeout(state.timer);
+  const wait = ms || (state.failed ? 60000 : 20000);
+  state.timer = setTimeout(() => { if (!document.hidden) refresh(); else schedule(); }, wait);
+}
+$("reload").addEventListener("click", () => { state.failed = 0; refresh(); });
+$("banners").addEventListener("click", (ev) => { if (ev.target.closest("[data-retry]")) { state.failed = 0; refresh(); } });
+window.addEventListener("resize", () => { if (state.data) renderChart(state.data.pairs || []); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+refresh();
+</script>

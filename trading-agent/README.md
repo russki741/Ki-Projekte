@@ -11,18 +11,20 @@ Handelsagenten, die rund um die Uhr Krypto- und Devisenkurse auswerten, Trades i
 
 ## Was läuft
 
-- **agent-tick** (jede Minute): holt geschlossene 1-Minuten-Kerzen (BTC, ETH, SOL über Bybit, EUR/USD über Yahoo), bewertet sie mit der Strategie `mtf_pullback`, eröffnet und schließt Papier-Positionen, prüft Risiko-Grenzen, lernt aus Verlusten und schlägt bei Tagesgewinn ab 500 € einen neuen Agenten vor.
+- **trend-tick** (alle 5 Minuten): die Trend-Agenten Beta (Momentum-Abstimmung 30/90/180 Tage) und Gamma (Turtle-Ausbruch 55/20 Tage) entscheiden einmal je abgeschlossener Tageskerze über BTC, ETH und SOL. Größe nach Schwankung, höchstens 8,3 % des Kapitals je Markt, Rückgangs-Limit 10 %, Nachrichten und Termine als Schutzschicht. Details: [docs/REGELBUCH.md](docs/REGELBUCH.md).
+- **agent-tick** (jede Minute): holt geschlossene 1-Minuten-Kerzen (BTC, ETH, SOL über Bybit, EUR/USD über Yahoo) und bewertet sie für die Marktübersicht. Der Minuten-Agent Alpha, der damit gehandelt hat, ist seit 3. November 2026 im Ruhestand.
 - **bybit-demo** (alle 30 Sekunden): spiegelt neue Krypto-Käufe und -Verkäufe der Agenten auf das Bybit-Demo-Konto, speichert Ausführungen, Gebühren, Preisabweichung und Kontostand.
-- **news-scan** (alle 10 Minuten): liest öffentliche Nachrichten-Feeds, bewertet Schlagzeilen mit einer Stichwort-Heuristik und pausiert neue Einstiege nach wichtigen Meldungen für 30 Minuten.
+- **news-scan** (alle 10 Minuten): liest öffentliche Nachrichten-Feeds und bewertet Schlagzeilen mit einer Stichwort-Heuristik. Nach wichtigen Meldungen kaufen die Agenten 30 Minuten lang nichts Neues.
 - **probe** (jede Minute bzw. alle 5 Minuten): prüft, ob die Datenquellen antworten und wie aktuell sie sind.
 - **dashboard-api**, **bybit-view**: liefern die Daten für die App und nehmen Start, Stopp und Schalter entgegen.
-- **backtest**, **strategy-lab**: Forschung auf historischen Daten, nur auf Abruf.
+- **backtest**, **strategy-lab**: Forschung auf historischen Daten, nur auf Abruf. strategy-lab enthält das Regelbuch, aus dem die Trend-Agenten stammen.
 
 Details: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) · Bedienung und Notfälle: [docs/BETRIEB.md](docs/BETRIEB.md) · Sicherheit: [docs/SICHERHEIT.md](docs/SICHERHEIT.md)
 
 ## Ehrlicher Stand
 
-- Die Strategie hat bisher **keinen nachgewiesenen Vorteil nach Kosten**. Auf 1 bis 15 Minuten liegt der Vorteil vor Kosten etwa bei null; ein Hin- und Rückweg kostet rund 20 bis 25 Basispunkte (Gebühr 0,1 % je Seite plus Spread).
+- Die Minuten-Strategie hatte **keinen Vorteil nach Kosten**. Auf 1 bis 15 Minuten liegt der Vorteil vor Kosten etwa bei null; ein Hin- und Rückweg kostet rund 20 bis 25 Basispunkte. Deshalb der Wechsel auf Tagesregeln.
+- Die Tagesregeln waren im Rückblick (Mai 2022 bis Oktober 2026, mit Kosten) besser als Halten, vor allem beim Rückgang. Das ist kein Beweis für die Zukunft: 36 Varianten wurden getestet, und ein starkes Jahr trägt den größten Teil des Gewinns. Die Agenten setzen nur ein Viertel der getesteten Größe ein, damit das 10-%-Limit hält; entsprechend klein ist der erwartete Gewinn.
 - Eine Trefferquote von 80 % oder 95 % liefert keine der getesteten Strategien.
 - Die Nachrichten-Auswertung ist eine Stichwort-Heuristik, kein Sprachmodell.
 - EUR/USD läuft nur im Papier-Modell. Auf Bybit wird nur gekauft (Spot), Leerverkäufe gibt es dort nicht.
@@ -42,7 +44,7 @@ trading-agent/
 ├── supabase/
 │   ├── functions/<name>/   Quelltext jeder Edge Function, wie sie in Supabase läuft, mit Tests
 │   └── migrations/         Datenbank-Änderungen in der Reihenfolge, in der sie angewendet wurden
-└── docs/                   Architektur, Betrieb, Sicherheit
+└── docs/                   Architektur, Regelbuch, Betrieb, Sicherheit
 ```
 
 ## Tests
@@ -51,7 +53,7 @@ Node 22 genügt, ohne Installation:
 
 ```bash
 cd supabase/functions
-node --experimental-strip-types --test agent-tick/strategy.test.ts news-scan/newslib.test.ts bybit-demo/bybit.test.ts strategy-lab/lab.test.ts
+node --experimental-strip-types --test agent-tick/strategy.test.ts news-scan/newslib.test.ts bybit-demo/bybit.test.ts strategy-lab/lab.test.ts trend-tick/engine.test.ts
 node --experimental-strip-types backtest/sim.test.mjs
 ```
 
@@ -61,7 +63,7 @@ Browser-Tests der App (Playwright mit Chromium):
 node tests/app.test.cjs
 ```
 
-Stand 3. November 2026: 48 Tests der Funktionen und 90 Tests der App, alle bestanden.
+Stand 3. November 2026: 49 Tests der Funktionen, der Backtest-Selbsttest und 101 Tests der App, alle bestanden.
 
 ## Regeln für Änderungen
 

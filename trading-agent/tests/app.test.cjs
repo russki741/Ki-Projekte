@@ -180,7 +180,8 @@ function serve() {
   await r.page.screenshot({ path: path.join(SHOTS, "busy-dark-bybit.png"), fullPage: true });
   r.setBbReply((b) => (b.action === "set_enabled" ? { status: 409, body: { error: "open_positions", open: 1 } } : null));
   await r.page.click("#bb-toggle");
-  await r.page.waitForSelector(".toast");
+  // an earlier toast may still be visible, so wait for the refusal text itself
+  await r.page.waitForFunction(() => /nicht möglich/.test(document.querySelector("#toasts")?.textContent || ""), null, { timeout: 5000 }).catch(() => {});
   check("bybit: switching off with an open position asks first and explains the refusal", r.dialogs.some((d) => /ausschalten/.test(d)) && /nicht möglich/.test(await r.page.textContent("#toasts")) && r.bbCalls.some((c) => c.action === "set_enabled" && c.enabled === false));
   check("bybit: toggle usable again", !(await r.page.locator("#bb-toggle").isDisabled()));
   check("busy: no JS errors", r.errors.length === 0, r.errors.join(" | "));
@@ -267,6 +268,26 @@ function serve() {
   await r.page.waitForURL(/#bybit$/);
   await r.page.waitForSelector("#app:not([hidden])");
   check("redirect: bybit.html opens the bybit area of the app", !(await r.page.locator('.view[data-view="bybit"]').isHidden()));
+  await r.ctx.close();
+
+  // trend agents: Alpha retired, Beta and Gamma trade daily rules, positions without fixed stop/target
+  r = await run("trend", fx.trend, { width: 390, height: 800 }, "light");
+  const cards = r.page.locator("#agents article.agent");
+  check("trend: three agent cards", (await cards.count()) === 3);
+  const alphaCard = await cards.nth(0).textContent();
+  check("trend: Alpha shows retired chip and text", /Im Ruhestand/.test(alphaCard) && /keine neuen Trades/.test(alphaCard), alphaCard.slice(0, 200));
+  check("trend: no start/stop buttons and no replication bar for the retired agent", (await cards.nth(0).locator("[data-agent-start],[data-agent-stop],.goal").count()) === 0);
+  const betaCard = await cards.nth(1).textContent();
+  check("trend: Beta shows its rule, daily decision and share", /Momentum-Abstimmung 30\/90\/180 Tage/.test(betaCard) && /einmal am Tag/.test(betaCard) && /8,3 % des Kapitals/.test(betaCard) && /Rückgangs-Limit 10 %/.test(betaCard), betaCard.slice(0, 400));
+  check("trend: no undefined in agent texts", !/undefined|NaN/.test(await r.page.textContent("#agents")));
+  check("trend: active trend agent has a stop button", (await cards.nth(1).locator("[data-agent-stop]").count()) === 1);
+  await go(r.page, "trades");
+  const posText = await r.page.textContent("#positions");
+  check("trend: position without stop shows 'per Regel'", /per Regel/.test(posText) && /offen/.test(posText) && !/undefined|NaN/.test(posText), posText.slice(0, 300));
+  check("trend: no horizontal overflow on phone", await noOverflow(r.page));
+  await go(r.page, "uebersicht");
+  await r.page.screenshot({ path: path.join(SHOTS, "trend-mobile-agents.png"), fullPage: true });
+  check("trend: no JS errors", r.errors.length === 0, r.errors.join(" | "));
   await r.ctx.close();
 
   await browser.close();

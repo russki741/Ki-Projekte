@@ -222,7 +222,7 @@ async function tick(sql: any, body: any) {
         // Market assessment for the dashboard (trend, momentum, volatility, quality), independent of any running agent.
         // Uses the first agent's strategy/cost settings as the reference; stays null when data is missing.
         let assessment: Record<string, unknown> | null = null;
-        const baseCfg = agents[0]?.config;
+        const baseCfg = agents.find((x: any) => x.config?.strategy?.ema_fast)?.config; // reference: the first minute-engine agent
         if (baseCfg?.strategy && d.c1?.length && d.c15?.length) {
           const cc: CostCfg = baseCfg.costs?.[d.spec.market] ?? { fee_bps: 10, slip_bps: 2, fallback_spread_bps: 3 };
           const sp = spreadOf(d, cc.fallback_spread_bps);
@@ -268,17 +268,19 @@ async function tick(sql: any, body: any) {
       const out: any[] = [];
 
       for (const a of agents) {
+        if ((a.config?.engine ?? "minute") !== "minute") continue; // trend agents are handled by trend-tick
+        const retired = a.config?.strategy?.retired === true; // replaced agent: closes what is still open, never opens anything
         const mine = openAll.filter((p: any) => p.agent_id === a.id);
-        if (a.status !== "active" && mine.length === 0 && !rehearsal) continue; // paused agents without positions do nothing
+        if ((a.status !== "active" || retired) && mine.length === 0 && !rehearsal) continue; // paused agents without positions do nothing
         if (a.status === "pending_approval") continue;
         const cfg = a.config ?? {};
         const strat = cfg.strategy as StratCfg;
         const risk = cfg.risk ?? {};
         const costsOf = (m: string): CostCfg => cfg.costs?.[m] ?? { fee_bps: 10, slip_bps: 2, fallback_spread_bps: 3 };
-        const active = a.status === "active" || rehearsal;
+        const active = (a.status === "active" || rehearsal) && !retired;
         const marketOn = (m: string) => rehearsal || st.markets_enabled?.[m] === true;
         let cash: number = a.cash;
-        const stopReason = killSwitch ? "kill_switch" : a.status === "halted" ? "halted" : a.status === "stopped" && !rehearsal ? "stopped" : null;
+        const stopReason = retired ? "retired" : killSwitch ? "kill_switch" : a.status === "halted" ? "halted" : a.status === "stopped" && !rehearsal ? "stopped" : null;
         const closedNow: any[] = [];
         const openedNow: any[] = [];
         const sigOut: any[] = [];

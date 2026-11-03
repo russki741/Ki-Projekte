@@ -134,4 +134,21 @@ function many() {
   return d;
 }
 many.trades = () => mkTrades(PN_MANY, 10000, now() - 600000, A1);
-module.exports = { empty: empty3, busy: busy3, many };
+// Alpha retired, two trend agents (daily rules); one trend position without fixed stop or target
+const A3 = "33333333-3333-4333-8333-333333333333";
+function trend() {
+  const d = busy3(); const t = now();
+  const alpha = d.agents[0];
+  alpha.status = "stopped"; alpha.config = JSON.parse(JSON.stringify(cfg)); alpha.config.strategy.retired = true;
+  const tcfg = (rule, label) => ({ markets: { crypto: ["BTCUSDT", "ETHUSDT", "SOLUSDT"] }, strategy: { rule, label, tf: 1440, sizing: "vol", ref_vol: 0.6, vol_days: 30, scale: 0.25 }, risk: { max_drawdown_pct: 10, min_notional_usd: 10 }, costs: {} });
+  const beta = JSON.parse(JSON.stringify(d.agents[1]));
+  Object.assign(beta, { id: A2, name: "Agent Beta · Momentum", parent_id: null, generation: 0, status: "active", last_tick_at: iso(t - 120000), config: tcfg("tsmom_vote", "Momentum-Abstimmung 30/90/180 Tage") });
+  const gamma = JSON.parse(JSON.stringify(d.agents[1]));
+  Object.assign(gamma, { id: A3, name: "Agent Gamma · Turtle", parent_id: null, generation: 0, status: "active", last_tick_at: iso(t - 120000), config: tcfg("turtle_55_20", "Turtle-Ausbruch 55/20 Tage") });
+  d.agents = [alpha, beta, gamma];
+  d.replication_events = [];
+  d.open_positions = [{ id: 9, agent_id: A2, market: "crypto", symbol: "SOLUSDT", side: "long", qty: 2.1, entry_price: 198.4, entry_time: iso(t - 300000), entry_fee: 0.42, entry_notional: 416.6, sl_price: null, tp_price: null, sl: null, tp: null, risk_usd: 60, quality: null, setup_key: "SOLUSDT:long:tsmom_vote", mark: 199.1, unrealized_usd: 1.47, value: 418.1 }];
+  return d;
+}
+trend.trades = busy3.trades;
+module.exports = { empty: empty3, busy: busy3, many, trend };

@@ -309,7 +309,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
 
       <section class="block" id="s-pos">
         <h2>Offene Positionen</h2>
-        <p class="lead">Long heißt gekauft, Short heißt leer verkauft. Jede Position hat einen Stop-Loss.</p>
+        <p class="lead">Long heißt gekauft. Die Trend-Agenten verkaufen, sobald ihre Regel aus ist. Bei Regeln mit Trailing-Stop steht die aktuelle Stop-Linie in der Spalte Stop, sonst „per Regel“.</p>
         <div id="positions"></div>
       </section>
     </div>
@@ -317,7 +317,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
     <div class="view" data-view="maerkte" hidden>
       <section class="block" id="s-markets">
         <h2>Märkte nach Signalqualität</h2>
-        <p class="lead">Jede Minute werden die letzten abgeschlossenen 1-Minuten-Kerzen bewertet. Ein Einstieg wird nur simuliert, wenn die Qualität das Minimum erreicht und die Kosten (Gebühren, Spread, Slippage) zum Kursziel passen.</p>
+        <p class="lead">Jede Minute werden die letzten abgeschlossenen 1-Minuten-Kerzen bewertet. Das ist eine kurzfristige Marktübersicht. Gehandelt wird seit dem 3. November nach Tagesregeln, siehe Agenten in der Übersicht.</p>
         <div class="tabs" role="tablist" id="tabs" aria-label="Marktmodule"></div>
         <div id="markets"></div>
       </section>
@@ -712,20 +712,33 @@ function marketDetail(r, err) {
 }
 
 /* ---------- render: agents ---------- */
+/** One line that says how an agent trades: trend agents (strategy.rule) decide once per bar, the old minute agent by signal quality. */
+function agentCfgText(cfg, mk, retired) {
+  const s = cfg.strategy || {};
+  if (retired) return "Im Ruhestand: Diese Minuten-Strategie wurde durch die Trend-Agenten ersetzt. Sie eröffnet keine neuen Trades mehr, ihre letzten Positionen wurden geschlossen.";
+  if (s.rule) {
+    const n = Math.max(1, (cfg.markets?.crypto || []).length);
+    const share = (100 / n) * (Number.isFinite(s.scale) ? s.scale : 1);
+    const when = Number(s.tf) === 1440 ? "einmal am Tag nach Tagesschluss (00:00 UTC, 03:00 Uhr Moskau)" : `nach jeder ${num(Number(s.tf) / 60, 0)}-Stunden-Kerze`;
+    return `Regel: ${esc(s.label || s.rule)}. Entscheidung ${esc(when)}. Märkte: ${esc(mk || "–")}, nur Kauf, kein Hebel. Größe je Markt höchstens ${esc(num(share, 1))} % des Kapitals${s.sizing === "vol" ? ", bei starker Schwankung weniger" : ""}. Rückgangs-Limit ${esc(cfg.risk?.max_drawdown_pct ?? 10)} %. Schutz: keine neuen Käufe 30 Minuten nach wichtigen Nachrichten und rund um Zinsentscheide und US-Arbeitsmarktdaten, halbe Größe an Tagen mit vielen wichtigen Krypto-Nachrichten.`;
+  }
+  return `Märkte: ${esc(mk || "–")}. Risiko ${esc(cfg.risk?.risk_per_trade_pct ?? "–")} % je Trade, höchstens ${esc(cfg.risk?.max_positions ?? "–")} Positionen, Tagesverlust-Limit ${esc(cfg.risk?.daily_loss_pct ?? "–")} %, Mindestqualität ${esc(s.min_quality ?? "–")}, Short ${cfg.allow_short?.crypto || cfg.allow_short?.forex ? "teilweise erlaubt" : "aus"}.`;
+}
 function renderAgents(D, X) {
   const s = D.settings;
   $("#agents-lead").textContent = `Jeder Agent handelt mit eigenem virtuellem Konto. Erreicht ein Agent an einem UTC-Tag ${num(s.replication_threshold_eur, 0)} Euro realisierten Gewinn, entsteht ein Kind-Agent mit seinen Einstellungen und seinem Gedächtnis (höchstens ${s.max_agents} Agenten, ${s.replication_requires_approval ? "mit deiner Freigabe" : "automatisch"}).`;
   if (!D.agents.length) { $("#agents").innerHTML = `<div class="empty">Noch kein Agent angelegt.</div>`; return; }
   $("#agents").innerHTML = D.agents.map((a) => {
-    const st = AGENT_STATUS[a.status] || [a.status, "plain"];
+    const retired = a.config?.strategy?.retired === true;
+    const st = retired ? ["Im Ruhestand", "plain"] : AGENT_STATUS[a.status] || [a.status, "plain"];
     const today = a.stats.pnl_today || 0;
     const todayEur = X.eur ? today / X.eur : null;
     const goal = Number.isFinite(todayEur) ? Math.max(0, Math.min(100, (todayEur / s.replication_threshold_eur) * 100)) : 0;
     const cfg = a.config || {};
     const mk = [...(cfg.markets?.crypto || []), ...(cfg.markets?.forex || [])].map(SYM).join(", ");
     const parent = a.parent_id ? X.agentName.get(a.parent_id) || "unbekannt" : null;
-    const canStart = a.status === "stopped" || a.status === "halted";
-    const canStop = a.status === "active" || a.status === "halted";
+    const canStart = !retired && (a.status === "stopped" || a.status === "halted");
+    const canStop = !retired && (a.status === "active" || a.status === "halted");
     return `<article class="agent">
       <div class="agent-head">
         <div><h3>${esc(a.name)} <span class="chip ${st[1]}">${esc(st[0])}</span></h3>
@@ -746,11 +759,11 @@ function renderAgents(D, X) {
         <div><dt>Mittleres Ergebnis je Trade</dt><dd>${esc(num(a.stats.avg_r || 0, 2))} R</dd></div>
         <div><dt>Letzter Lauf</dt><dd>${esc(a.last_tick_at ? agoIso(a.last_tick_at) : "noch keiner")}</dd></div>
       </dl>
-      <div class="goal">
+      ${retired ? "" : `<div class="goal">
         <div class="small">Weg zur Vermehrung: ${Number.isFinite(todayEur) ? esc(signed(todayEur)) + " Euro" : "Euro-Kurs nicht aktuell"} von ${esc(num(s.replication_threshold_eur, 0))} Euro heute</div>
         <div class="q-bar" role="img" aria-label="${esc(num(goal, 0))} Prozent der Vermehrungsschwelle"><i class="pass" style="width:${goal}%"></i></div>
-      </div>
-      <p class="cfg">Märkte: ${esc(mk || "–")}. Risiko ${esc(cfg.risk?.risk_per_trade_pct ?? "–")} % je Trade, höchstens ${esc(cfg.risk?.max_positions ?? "–")} Positionen, Tagesverlust-Limit ${esc(cfg.risk?.daily_loss_pct ?? "–")} %, Mindestqualität ${esc(cfg.strategy?.min_quality ?? "–")}, Short ${cfg.allow_short?.crypto || cfg.allow_short?.forex ? "teilweise erlaubt" : "aus"}.</p>
+      </div>`}
+      <p class="cfg">${agentCfgText(cfg, mk, retired)}</p>
     </article>`;
   }).join("");
   const ev = D.replication_events || [];
@@ -803,10 +816,10 @@ function renderChart(D, X) {
 /* ---------- render: positions, trades, lessons ---------- */
 function renderPositions(D, X) {
   const list = D.open_positions || [];
-  if (!list.length) { $("#positions").innerHTML = `<div class="empty">Keine offenen Positionen. Der Agent wartet auf ein Signal mit ausreichender Qualität.</div>`; return; }
+  if (!list.length) { $("#positions").innerHTML = `<div class="empty">Keine offenen Positionen. Die Agenten warten auf ein Kaufsignal ihrer Regel.</div>`; return; }
   $("#positions").innerHTML = `<div class="scroll"><table><thead><tr><th>Agent</th><th>Symbol</th><th>Richtung</th><th class="num">Menge</th><th class="num">Einstieg</th><th class="num">Aktuell</th><th class="num">Stop</th><th class="num">Ziel</th><th class="num">Unrealisiert</th><th>Seit</th></tr></thead><tbody>${list.map((p) => `<tr>
     <td>${esc(X.agentName.get(p.agent_id) || "")}</td><td><b>${esc(SYM(p.symbol))}</b></td><td>${p.side === "long" ? "Long (gekauft)" : "Short (leer verkauft)"}</td>
-    <td class="num">${esc(num(p.qty, 6))}</td><td class="num">${esc(px(p.entry_price))}</td><td class="num">${esc(px(p.mark))}</td><td class="num">${esc(px(p.sl))}</td><td class="num">${esc(px(p.tp))}</td>
+    <td class="num">${esc(num(p.qty, 6))}</td><td class="num">${esc(px(p.entry_price))}</td><td class="num">${esc(px(p.mark))}</td><td class="num">${p.sl == null ? "per Regel" : esc(px(p.sl))}</td><td class="num">${p.tp == null ? "offen" : esc(px(p.tp))}</td>
     <td class="num ${clsPnl(p.unrealized_usd)}">${esc(usd(p.unrealized_usd, true))}</td><td>${esc(T(p.entry_time))}</td></tr>`).join("")}</tbody></table></div>`;
 }
 /* ---------- render: capital statement ---------- */

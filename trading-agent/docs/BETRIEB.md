@@ -2,17 +2,40 @@
 
 ## Täglich
 
-Oben in der App sieht man, ob die Agenten laufen und wann der letzte Minutenlauf war. Der Punkt am Bereich **Bybit-Demo** ist grün, wenn das Spiegeln läuft, und rot bei einem Problem. Im Bereich selbst steht dann die Ursache.
+Oben in der App sieht man, ob die Agenten laufen und wann der letzte Minutenlauf war. Die Trend-Agenten entscheiden nur einmal am Tag kurz nach 00:00 UTC (03:00 Uhr Moskau); an den übrigen Läufen passiert meist nichts. Der Punkt am Bereich **Bybit-Demo** ist grün, wenn das Spiegeln läuft, und rot bei einem Problem. Im Bereich selbst steht dann die Ursache.
 
 ## Notbremse
 
-In der App: **Alle stoppen**. Das setzt die Notbremse (`kill_switch`) und stoppt alle Agenten. Offene Papier-Positionen werden im nächsten Minutenlauf geschlossen, das Spiegeln verkauft sie dann auch auf Bybit.
+In der App: **Alle stoppen**. Das setzt die Notbremse (`kill_switch`) und stoppt alle Agenten. Offene Papier-Positionen werden im nächsten Lauf geschlossen (Minuten-Agenten nach höchstens einer Minute, Trend-Agenten nach höchstens 5 Minuten), das Spiegeln verkauft sie dann auch auf Bybit.
 
 Ohne App, im Supabase SQL-Editor:
 
 ```sql
 update agent_core.settings set kill_switch = true where id;
 ```
+
+## Termin-Kalender pflegen
+
+Die Trend-Agenten kaufen von 20 Stunden vor bis 2 Stunden nach wichtigen Terminen nichts Neues. Den US-Arbeitsmarktbericht berechnet trend-tick selbst (erster Freitag im Monat). US-Zinsentscheide stehen in der Tabelle `event_calendar`. Eingetragen sind alle Termine bis Dezember 2027 (Quelle: Pressemitteilung der Fed vom 5. September 2025). Neue Termine nachtragen, sobald die Fed sie veröffentlicht. Die Uhrzeit ist 14:00 Uhr New York, also 19:00 UTC im Winter und 18:00 UTC im Sommer:
+
+```sql
+insert into agent_core.event_calendar (starts_at, name) values ('2028-01-26 19:00:00+00', 'FOMC Zinsentscheid')
+on conflict do nothing;
+```
+
+Das Datum 2028 oben zeigt nur das Format und ist nicht geprüft. Nicht enthalten sind US-Inflationsdaten und EZB-Termine.
+
+## Trend-Agenten prüfen
+
+```sql
+select name, status, round(cash, 2) as cash, state->>'last_tick_at' as letzter_lauf, state->'decided' as entschiedene_kerzen
+from agent_core.agents where config->>'engine' = 'trend';
+
+select ts, symbol, decision, reason, features->>'want' as regel_an from agent_core.signals
+where agent_id in (select id from agent_core.agents where config->>'engine' = 'trend') order by ts desc limit 20;
+```
+
+Probelauf ohne Wirkung (alles wird zurückgerollt): trend-tick mit `{"dry_run":true}` aufrufen.
 
 ## Spiegeln auf Bybit ein- und ausschalten
 
@@ -70,4 +93,4 @@ Schlüssel nie in den Chat, ins Repo oder in eine Datei schreiben.
 
 ## Grenzen des kostenlosen Tarifs
 
-Die Zeitpläne erzeugen rund 186.000 Funktionsaufrufe pro Monat: bybit-demo 86.400, agent-tick 43.200, probe 51.840, news-scan 4.320. Der kostenlose Supabase-Tarif erlaubt 500.000. Die Datenbank bleibt klein, weil Probe-Protokolle nach 3 Tagen gelöscht werden.
+Die Zeitpläne erzeugen rund 195.000 Funktionsaufrufe pro Monat: bybit-demo 86.400, agent-tick 43.200, probe 51.840, trend-tick 8.640, news-scan 4.320. Der kostenlose Supabase-Tarif erlaubt 500.000. Die Datenbank bleibt klein, weil Probe-Protokolle nach 3 Tagen gelöscht werden.

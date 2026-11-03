@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { atr, buyAndHold, catalogue, ema, type Bar, type Costs, priorMax, rsi, simulate, sma, stats } from "./lab.ts";
+import { atr, buyAndHold, catalogue, ema, type Bar, type Costs, portfolio, priorMax, rsi, rulebook, simulate, sma, stateFrom, stats } from "./lab.ts";
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -114,4 +114,66 @@ test("stats: mean, t value, win rate, profit factor", () => {
   assert.equal(s.pf, 6);
   assert.equal(s.avg_bars, 4);
   assert.equal(stats([]).n, 0);
+});
+
+
+// ---------- rulebook v2 (portfolio on daily bars) ----------
+const DAY = 86_400_000;
+function dailyWalk(n: number, seed: number, vol = 0.03, drift = 0): Bar[] {
+  return walk(n, seed, vol).map((b, i) => ({ ...b, ts: 1_600_000_000_000 + i * DAY, o: b.o * (1 + drift) ** i, h: b.h * (1 + drift) ** i, l: b.l * (1 + drift) ** i, c: b.c * (1 + drift) ** i }));
+}
+const PCFG = { sizing: "equal" as const, refVol: 0.6, volDays: 30, barsPerDay: 1, capital: 10000 };
+const NOCOST: Costs = { feeBps: 0, slipBps: 0, spreadBps: 0 };
+
+test("rulebook: stateFrom switches on at entry and off at exit, exit wins", () => {
+  assert.deepEqual(stateFrom([false, true, false, false, true, true], [false, false, false, true, false, true]), [false, true, true, false, true, false]);
+});
+
+test("rulebook: no rule looks ahead (signal at bar i ignores later bars)", () => {
+  const b = dailyWalk(700, 11);
+  for (const r of rulebook(1)) {
+    const full = r.signal(b);
+    for (const cut of [250, 400, 650]) {
+      const part = r.signal(b.slice(0, cut + 1));
+      assert.deepEqual(part, full.slice(0, cut + 1), `${r.id} changed history at ${cut}`);
+    }
+  }
+});
+
+test("rulebook: hold without costs equals the average asset return", () => {
+  const a = dailyWalk(300, 1), b = dailyWalk(300, 2);
+  const res = portfolio({ A: a, B: b }, "hold", PCFG, () => NOCOST);
+  const exp = ((a[299].c / a[1].o) + (b[299].c / b[1].o)) / 2 - 1; // decided at the first close, bought at the next open
+  assert.ok(Math.abs(res.metrics.total_pct - exp * 100) < 0.11, `${res.metrics.total_pct} vs ${exp * 100}`);
+  assert.equal(res.trades.length, 0); // still open at the end
+});
+
+test("rulebook: costs reduce the result, fees are counted", () => {
+  const data = { A: dailyWalk(400, 3), B: dailyWalk(400, 4) };
+  const r = rulebook(1).find((x) => x.id === "turtle_20_10")!;
+  const free = portfolio(data, r, PCFG, () => NOCOST), paid = portfolio(data, r, PCFG, () => ({ feeBps: 10, slipBps: 2, spreadBps: 2 }));
+  assert.ok(paid.trades.length > 3 && paid.metrics.total_pct < free.metrics.total_pct && paid.feesUsd > 0);
+});
+
+test("rulebook: vol sizing gives a twice as volatile asset about half the weight", () => {
+  const calm = dailyWalk(200, 5, 0.02), wild = dailyWalk(200, 6, 0.04);
+  const res = portfolio({ C: calm, W: wild }, "hold", { ...PCFG, sizing: "vol", refVol: 0.05, volDays: 30 }, () => NOCOST, calm[60].ts);
+  const val = (s: string) => res.open[s].qty * res.open[s].entryPx;
+  const ratio = val("C") / val("W");
+  assert.ok(ratio > 1.6 && ratio < 2.5, `ratio ${ratio}`);
+  assert.ok(val("C") < 10000 / 2, "scaled below the equal weight");
+});
+
+test("rulebook: trailing stop exits and waits for the rule to switch off before re-entering", () => {
+  const n = 120;
+  const bars: Bar[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = i < 60 ? 100 + i : i < 70 ? 160 - (i - 60) * 4 : 120; // up, sharp drop, flat
+    bars.push({ ts: i * DAY, o: p, h: p * 1.005, l: p * 0.995, c: p, v: 1 });
+  }
+  const always: any = { id: "always", name: "", source: "", signal: (b: Bar[]) => b.map(() => true), trailAtr: 3 };
+  const res = portfolio({ X: bars }, always, PCFG, () => NOCOST);
+  assert.equal(res.trades.length, 1);
+  assert.equal(res.trades[0].reason, "trailing_stop");
+  assert.ok(res.metrics.exposure_pct < 70); // stayed out after the stop although the rule was still "in"
 });

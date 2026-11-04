@@ -156,4 +156,60 @@ function trend() {
   return d;
 }
 trend.trades = () => [];
-module.exports = { empty: empty3, busy: busy3, many, trend };
+
+// Currency agent Delta (both directions) and the user's own paper account ("Selbst handeln").
+const A4 = "44444444-4444-4444-8444-444444444444", A5 = "55555555-5555-4555-8555-555555555555";
+function own() {
+  const d = trend(); const t = now();
+  const RATE = 81.6699, CAP = 5000 / RATE;
+  const zero = { trades: 0, wins: 0, pnl: 0, pnl_today: 0, avg_r: 0, gross_win: 0, gross_loss: 0, fees: 0, win_rate: null, profit_factor: null };
+  const FX = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCHF=X", "USDCAD=X"];
+  const fxPx = { "EURUSD=X": 1.1232, "GBPUSD=X": 1.3474, "USDJPY=X": 158.44, "AUDUSD=X": 0.7011, "USDCHF=X": 0.8169, "USDCAD=X": 1.3965 };
+  const deltaPos = FX.map((s, i) => ({ id: 200 + i, agent_id: A4, market: "forex", symbol: s, side: i % 2 ? "long" : "short", qty: 5.1018 / fxPx[s], entry_price: fxPx[s], entry_time: iso(t - 600000),
+    entry_fee: 0, entry_notional: 5.1018, sl_price: null, tp_price: null, sl: null, tp: null, risk_usd: 0.5, quality: null, setup_key: `${s}:x:tsmom_vote`, mark: fxPx[s] * (i % 2 ? 1.001 : 0.999),
+    unrealized_usd: 5.1018 * 0.001, value: 5.1018 * 1.001 }));
+  const ownPos = [
+    { id: 301, agent_id: A5, market: "crypto", symbol: "BTCUSDT", side: "long", qty: 0.00017, entry_price: 70012.3, entry_time: iso(t - 1800000), entry_fee: 0.0119, entry_notional: 11.9, sl_price: null, tp_price: null, sl: null, tp: null, risk_usd: 1.19, quality: null, setup_key: "BTCUSDT:long:manual", mark: 70300, unrealized_usd: 0.037, value: 11.949 },
+    { id: 302, agent_id: A5, market: "forex", symbol: "EURUSD=X", side: "short", qty: 10.9, entry_price: 1.12298, entry_time: iso(t - 900000), entry_fee: 0, entry_notional: 12.24, sl_price: null, tp_price: null, sl: null, tp: null, risk_usd: 1.22, quality: null, setup_key: "EURUSD=X:short:manual", mark: 1.1225, unrealized_usd: 0.0052, value: 12.2452 },
+  ];
+  const mkA = (id, name, cfg, open, extra) => {
+    const reserved = open.reduce((s, p) => s + p.entry_notional, 0), move = open.reduce((s, p) => s + (p.mark - p.entry_price) * p.qty * (p.side === "long" ? 1 : -1), 0);
+    const fees = open.reduce((s, p) => s + p.entry_fee, 0), real = extra?.pnl || 0, cash = CAP + real - reserved - fees;
+    return { id, name, parent_id: null, generation: 0, status: "active", halted_reason: null, capital_start: CAP, cash, equity: cash + reserved + move, open_positions: open.length,
+      drawdown_pct: 0, started_at: iso(t - 3600000), last_tick_at: iso(t - 120000), stats: { ...zero, ...(extra || {}) }, config: cfg,
+      capital: { start: CAP, realized_net: real, fees_closed: extra?.fees || 0, open_move: move, open_fees: fees, reserved, free_cash: cash, equity: cash + reserved + move, expected_equity: cash + reserved + move, diff: 0 } };
+  };
+  d.agents.push(mkA(A4, "Agent Delta · Währungen", { engine: "trend", markets: { forex: FX }, allow_short: { forex: true },
+    strategy: { rule: "tsmom_vote", label: "Momentum-Abstimmung 30/90/180 Tage, beide Richtungen", tf: 1440, sizing: "vol", ref_vol: 0.6, vol_days: 30, scale: 0.5 },
+    risk: { max_drawdown_pct: 10, min_notional_usd: 1, min_order_usd: 0 }, costs: {}, display: { currency: "RUB", capital_rub: 5000, usdrub_at_start: RATE } }, deltaPos));
+  d.agents.push(mkA(A5, "Ich · Selbst gehandelt", { engine: "manual", markets: { crypto: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XAUTUSDT"], forex: ["EURUSD=X", "GBPUSD=X", "USDJPY=X"] },
+    allow_short: { forex: true }, strategy: { label: "Du entscheidest selbst" }, risk: { min_order_usd: 6, min_notional_usd: 1 }, costs: {}, display: { currency: "RUB", capital_rub: 5000, usdrub_at_start: RATE } },
+    ownPos, { trades: 2, wins: 1, pnl: 0.0735, win_rate: 0.5, fees: 0.024 }));
+  d.open_positions = d.open_positions.concat(deltaPos, ownPos);
+  d.closed_total = 2;
+  d.manual = { markets: [
+    { symbol: "BTCUSDT", name: "Bitcoin", market: "crypto", can_short: false }, { symbol: "ETHUSDT", name: "Ethereum", market: "crypto", can_short: false },
+    { symbol: "SOLUSDT", name: "Solana", market: "crypto", can_short: false }, { symbol: "XAUTUSDT", name: "Gold (Token XAUT)", market: "crypto", can_short: false },
+    { symbol: "EURUSD=X", name: "EUR/USD", market: "forex", can_short: true }, { symbol: "GBPUSD=X", name: "GBP/USD", market: "forex", can_short: true },
+    { symbol: "USDJPY=X", name: "USD/JPY", market: "forex", can_short: true } ], min_usd: { crypto: 6, forex: 1 } };
+  return d;
+}
+own.trades = () => {
+  const t = now();
+  return [
+    { id: 290, agent_id: A5, market: "crypto", symbol: "ETHUSDT", side: "long", qty: 0.005, entry_price: 2380, entry_time: iso(t - 7200000), exit_price: 2410, exit_time: iso(t - 3600000), close_reason: "manual", pnl_usd: 0.126, r: 0.1, quality: null, setup_key: "ETHUSDT:long:manual", entry_fee: 0.0119, exit_fee: 0.0121, entry_notional: 11.9, cum_pnl: 0.126, capital_after: 61.35 },
+    { id: 289, agent_id: A5, market: "forex", symbol: "EURUSD=X", side: "short", qty: 10.9, entry_price: 1.1229, entry_time: iso(t - 9200000), exit_price: 1.1234, exit_time: iso(t - 8200000), close_reason: "manual", pnl_usd: -0.0525, r: -0.04, quality: null, setup_key: "EURUSD=X:short:manual", entry_fee: 0, exit_fee: 0, entry_notional: 12.24, cum_pnl: -0.0525, capital_after: 61.17 },
+  ];
+};
+/** Live quotes as returned by dashboard-api manual_quote. GBP/USD is shown as closed (weekend case). */
+function quotes(symbol) {
+  const t = now();
+  const row = (s, name, market, can_short, mid, extra) => Object.assign({ symbol: s, name, market, can_short, mid, bid: market === "crypto" ? mid - 0.05 : mid * (1 - 1e-4), ask: market === "crypto" ? mid + 0.05 : mid * (1 + 1e-4),
+    at: iso(t - 5000), fresh: true, change_pct: market === "crypto" ? 1.84 : -0.21, chart: symbol ? walk(48, mid, mid * 0.002) : null, fee_bps: market === "crypto" ? 10 : 0, slip_bps: market === "crypto" ? 2 : 1,
+    spread_bps: market === "crypto" ? 0.01 : 2, round_trip_pct: market === "crypto" ? 0.2401 : 0.04, min_rub: market === "crypto" ? 495 : 83, source: market === "crypto" ? "bybit" : "yahoo" }, extra || {});
+  const all = [row("BTCUSDT", "Bitcoin", "crypto", false, 70300), row("ETHUSDT", "Ethereum", "crypto", false, 2412.4), row("SOLUSDT", "Solana", "crypto", false, 92.8),
+    row("XAUTUSDT", "Gold (Token XAUT)", "crypto", false, 4012.5), row("EURUSD=X", "EUR/USD", "forex", true, 1.1225),
+    row("GBPUSD=X", "GBP/USD", "forex", true, 1.3474, { fresh: false, at: iso(t - 3 * 3600000) }), row("USDJPY=X", "USD/JPY", "forex", true, 158.44)];
+  return { server_time: iso(t), usdrub: 81.6699, kill_switch: false, markets_enabled: { crypto: true, forex: true }, quotes: symbol ? all.filter((q) => q.symbol === symbol) : all };
+}
+module.exports = { empty: empty3, busy: busy3, many, trend, own, quotes };

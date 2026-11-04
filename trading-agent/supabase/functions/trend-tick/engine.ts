@@ -46,6 +46,96 @@ export function decide(bars: Bar[], rule: Rule, cfg: TrendCfg, pos: { entryBarTs
   return { ...base, action: "none", reason: null, blocked: blk };
 }
 
+/** Inverse price series (e.g. USD/EUR from EUR/USD). The short side of a currency pair is the rule applied to this series. */
+export function inverseBars(b: Bar[]): Bar[] {
+  return b.map((x) => ({ ts: x.ts, o: 1 / x.o, h: 1 / x.l, l: 1 / x.h, c: 1 / x.c, v: x.v }));
+}
+
+export type Side = "long" | "short";
+export type TwoWay = {
+  long: Decision; // the rule on the price itself
+  short: Decision; // the rule on 1/price
+  close: boolean; // close the open position
+  open: Side | null; // open a position in this direction (also right after a close: a flip at the same moment, as in the lab study)
+  reason: "signal" | "trailing_stop" | null;
+  blocked: { long: boolean; short: boolean };
+};
+
+/**
+ * Both directions for markets that can be sold short (currencies, no leverage). Mirrors the lab study, where a pair and its
+ * inverse are two separate markets: long = rule on the price, short = rule on 1/price. Never both at once.
+ */
+export function decideTwoWay(bars: Bar[], rule: Rule, cfg: TrendCfg, pos: { side: Side; entryBarTs: number } | null, blocked: { long: boolean; short: boolean }): TwoWay {
+  const L = decide(bars, rule, cfg, pos?.side === "long" ? pos : null, blocked.long);
+  const S = decide(inverseBars(bars), rule, cfg, pos?.side === "short" ? pos : null, blocked.short);
+  let close = false, open: Side | null = null, reason: TwoWay["reason"] = null;
+  if (pos) {
+    const own = pos.side === "long" ? L : S, other = pos.side === "long" ? S : L;
+    if (own.action === "sell") {
+      close = true; reason = own.reason;
+      if (other.action === "buy") open = pos.side === "long" ? "short" : "long";
+    }
+  } else if (L.action === "buy" && S.action !== "buy") open = "long";
+  else if (S.action === "buy" && L.action !== "buy") open = "short";
+  return { long: L, short: S, close, open, reason, blocked: { long: L.blocked, short: S.blocked } };
+}
+
+// ---------- execution and accounting (pure, shared with the tests) ----------
+
+export type Px = { bid: number; ask: number };
+
+/** Execution price with slippage: a long buys at the ask, a short sells at the bid. */
+export function entryPx(side: Side, q: Px, slipBps: number): number {
+  return side === "long" ? q.ask * (1 + slipBps / 1e4) : q.bid * (1 - slipBps / 1e4);
+}
+/** Closing price with slippage: a long sells at the bid, a short buys back at the ask. */
+export function exitPx(side: Side, q: Px, slipBps: number): number {
+  return side === "long" ? q.bid * (1 - slipBps / 1e4) : q.ask * (1 + slipBps / 1e4);
+}
+/** Quote from a mid price (Yahoo has no bid/ask): half of the assumed spread on each side. */
+export function fromMid(mid: number, spreadBps: number): Px {
+  return { bid: mid * (1 - spreadBps / 2e4), ask: mid * (1 + spreadBps / 2e4) };
+}
+/**
+ * Paper accounting of a closed position (same as agent-tick): on entry cash -= notional + fee (also for a short: the
+ * notional is reserved as margin, no leverage); on exit cash += notional + price move - exit fee.
+ * Currency pairs are booked as price change x amount in USD, like the lab study; for pairs quoted in JPY, CHF or CAD the
+ * exact USD result differs only in the second order (0.04 % of the amount at a 2 % move).
+ */
+export function settle(side: Side, qty: number, entry: number, entryNotional: number, entryFee: number, exit: number, feeBps: number) {
+  const dir = side === "long" ? 1 : -1;
+  const fee = (exit * qty * feeBps) / 1e4;
+  const gross = (exit - entry) * qty * dir;
+  return { fee, gross, net: gross - entryFee - fee, cashBack: entryNotional + gross - fee };
+}
+/** Current value of an open position (reserved notional plus price move in its direction). */
+export function valueOf(side: string, qty: number, entry: number, entryNotional: number, mark: number): number {
+  return entryNotional + (mark - entry) * qty * (side === "short" ? -1 : 1);
+}
+
+const DAY_MS = 86_400_000;
+/**
+ * Yahoo chart API (interval=1d) -> closed daily bars plus the latest price and its time. Bars are keyed by their UTC day as
+ * in the lab study; a bar counts as closed 24 h after its RAW start (Yahoo starts currency days at London midnight, which is
+ * 23:00 UTC in summer), so the running day is never used. The last bar of a day wins.
+ */
+export function parseYahooDaily(body: any, nowMs: number): { bars: Bar[]; price: number; at: number } | null {
+  const r = body?.chart?.result?.[0];
+  if (!r) return null;
+  const t: number[] = r.timestamp ?? [], q = r.indicators?.quote?.[0] ?? {};
+  const out = new Map<number, Bar>();
+  for (let i = 0; i < t.length; i++) {
+    const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+    if (![o, h, l, c].every((x) => typeof x === "number" && Number.isFinite(x) && x > 0)) continue;
+    const raw = t[i] * 1000;
+    if (raw + DAY_MS > nowMs) continue;
+    const ts = Math.floor(raw / DAY_MS) * DAY_MS;
+    out.set(ts, { ts, o, h, l, c, v: Number(q.volume?.[i] ?? 0) || 0 });
+  }
+  const price = Number(r.meta?.regularMarketPrice), at = Number(r.meta?.regularMarketTime) * 1000;
+  return { bars: [...out.values()].sort((a, b) => a.ts - b.ts), price, at };
+}
+
 /** Share of equity for a new position: 1/N, scaled down by volatility (like the simulation) and by the agent's exposure scale. */
 export function weightOf(cfg: TrendCfg, nSymbols: number, vol: number): number {
   let w = 1 / nSymbols;

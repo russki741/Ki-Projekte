@@ -237,6 +237,40 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
   .mmain .c-facts,.mmain .c-q{grid-column:2 / 4}
   .mmain .c-btn{grid-column:2 / 4}
 }
+/* own trading ("Selbst handeln") */
+.mt-acc{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:4px 0 18px}
+.mt-acc div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.mt-acc dt{font-size:.85rem;color:var(--ink-3)}
+.mt-acc dd{margin:2px 0 0;font-size:1.3rem;font-weight:700;letter-spacing:-.01em}
+.mt-acc dd small{display:block;font-size:.8rem;font-weight:500;color:var(--ink-3);letter-spacing:0}
+.mt-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:14px}
+.mt-m{display:grid;gap:1px;text-align:left;border:1px solid var(--line-2);background:var(--surface);border-radius:10px;padding:10px 12px;min-width:0}
+.mt-m:hover{border-color:var(--ink-3)}
+.mt-m[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+.mt-m b{font-size:.95rem}
+.mt-m span{font-size:.85rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ticket{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:14px}
+.ticket-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.ticket .big{font-size:clamp(1.9rem,7vw,2.5rem);font-weight:700;letter-spacing:-.02em;line-height:1.05}
+.mt-chart svg{display:block;width:100%;height:auto}
+.sidesw{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sidesw button{padding:12px 10px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg);font-weight:700;line-height:1.25}
+.sidesw button small{display:block;font-weight:500;font-size:.8rem;opacity:.85}
+.sidesw button[aria-pressed=true].buy{background:var(--gain);border-color:var(--gain);color:var(--surface)}
+.sidesw button[aria-pressed=true].sell{background:var(--loss);border-color:var(--loss);color:var(--surface)}
+.amt label{display:block;font-weight:600;margin-bottom:6px}
+.amt-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.amt input{flex:1 1 160px;min-width:0;padding:12px;border:1px solid var(--line-2);border-radius:8px;background:var(--bg);font-size:1.15rem;font-weight:600}
+.preview{font-size:.95rem;color:var(--ink-2);background:var(--bg);border-radius:8px;padding:10px 12px}
+.preview b{color:var(--ink)}
+.preview.bad{background:var(--loss-soft);color:var(--ink)}
+.btn.go{width:100%;padding:14px;font-size:1.05rem}
+.btn.buy{background:var(--gain);border-color:var(--gain);color:var(--surface)}
+.btn.sell{background:var(--loss);border-color:var(--loss);color:var(--surface)}
+.confirm{border:2px solid var(--warn);background:var(--warn-soft);border-radius:10px;padding:12px;display:grid;gap:10px}
+.confirm .row{display:flex;gap:8px;flex-wrap:wrap}
+.confirm .row .btn{flex:1 1 140px}
+td .rowbtns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
 </style>
 </head>
@@ -267,6 +301,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
     <nav class="views" aria-label="Bereiche der App">
       <div class="vbar">
         <a href="#uebersicht" data-v="uebersicht">Übersicht</a>
+        <a href="#handeln" data-v="handeln">Selbst handeln</a>
         <a href="#trades" data-v="trades">Trades</a>
         <a href="#maerkte" data-v="maerkte">Märkte</a>
         <a href="#bybit" data-v="bybit"><i class="vdot" id="bb-dot" aria-hidden="true"></i>Bybit-Demo</a>
@@ -298,6 +333,49 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
       <section class="block" id="s-chart">
         <h2>Kapitalverlauf der letzten 24 Stunden</h2>
         <div id="chart"></div>
+      </section>
+    </div>
+
+    <div class="view" data-view="handeln" hidden>
+      <section class="block" id="s-trade">
+        <h2>Selbst handeln</h2>
+        <p class="lead">Dein eigenes Übungskonto mit 5.000 Rubel virtuellem Geld. Du handelst zu echten Kursen und mit echten Kosten (Gebühr, Spread, Schlupf), aber es wird nichts Echtes gekauft. Du entscheidest selbst, wann du einsteigst und wann du schließt, ohne Zeitlimit.</p>
+        <dl class="mt-acc" id="mt-account"></dl>
+        <h3 class="sub">1. Markt wählen</h3>
+        <div class="mt-list" id="mt-list" role="group" aria-label="Märkte"></div>
+        <div class="ticket" id="mt-ticket">
+          <div id="mt-head"></div>
+          <div class="mt-chart" id="mt-chart"></div>
+          <div id="mt-side"></div>
+          <div class="amt">
+            <label for="mt-amt">2. Betrag in Rubel</label>
+            <div class="amt-row">
+              <input id="mt-amt" type="text" inputmode="numeric" autocomplete="off" placeholder="z. B. 1000" aria-describedby="mt-prev">
+              <button class="btn sm" type="button" data-mt-amt="500">500</button>
+              <button class="btn sm" type="button" data-mt-amt="1000">1.000</button>
+              <button class="btn sm" type="button" data-mt-amt="2500">2.500</button>
+              <button class="btn sm" type="button" data-mt-amt="all">Alles frei</button>
+            </div>
+          </div>
+          <div id="mt-prev" class="preview" aria-live="polite"></div>
+          <div id="mt-act"></div>
+        </div>
+        <h3 class="sub">Deine offenen Positionen</h3>
+        <div id="mt-positions"></div>
+        <h3 class="sub">Deine abgeschlossenen Trades</h3>
+        <div id="mt-closed"></div>
+        <details class="hints">
+          <summary>So funktioniert es und was anders ist als im Video</summary>
+          <ul>
+            <li><b>Kaufen</b> heißt: du gewinnst, wenn der Kurs steigt. <b>Verkaufen</b> (nur bei Währungen) heißt: du gewinnst, wenn der Kurs fällt. Gewinn und Verlust folgen dem Kurs Prozent für Prozent, ohne Hebel.</li>
+            <li>Kosten: Krypto 0,1 % Gebühr beim Kauf und beim Verkauf plus Spread und Schlupf, zusammen etwa 0,25 %. Währungen ohne Gebühr, nur Spread und Schlupf, zusammen etwa 0,04 %. Die Vorschau zeigt die Kosten vor jedem Trade.</li>
+            <li>Im Video ging es um binäre Optionen: Wette in Sekunden auf hoch oder runter, bei Treffer ein fester Gewinnsatz, sonst ist der Einsatz weg. Der Anbieter verdient an jeder Wette, in der EU sind sie für Privatleute verboten. Hier kaufst du den Markt selbst (virtuell), es gibt keinen festen Auszahlungssatz und kein Ablaufdatum.</li>
+            <li>Der Devisenmarkt ist von Freitag 22:00 bis Sonntag 22:00 UTC geschlossen (Samstag 01:00 bis Montag 01:00 Uhr Moskau). Dann kannst du Währungen weder öffnen noch schließen. Krypto geht immer.</li>
+            <li>Krypto-Käufe werden wie die der Agenten zusätzlich auf dem Bybit-Demo-Konto mit Spielgeld ausgeführt.</li>
+            <li>Der Kill-Switch sperrt auch eigene neue Trades. Deine offenen Positionen bleiben stehen, bis du sie selbst schließt.</li>
+            <li>Dein Konto zählt in „Kapital gesamt“ mit und steht als eigene Karte bei den Agenten. So kannst du dich mit ihnen vergleichen.</li>
+          </ul>
+        </details>
       </section>
     </div>
 
@@ -393,7 +471,8 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
         <li>Jeder Agent startet mit 5.000 Rubel, umgerechnet in USDT zum Kurs der Zentralbank Russland. Gehandelt wird in USDT, deshalb ändert sich der Wert in Rubel auch mit dem Wechselkurs. Bybit nimmt Orders erst ab 5 USDT an, deshalb kauft jeder Agent je Markt mindestens 6 USDT.</li>
         <li>Die „KI“ besteht aus Regeln und einem Lernspeicher. Sie versteht keine Texte und sagt keine Kurse voraus.</li>
         <li>Ein neuer Agent entsteht erst bei 500 Euro Tagesgewinn. Mit 5.000 Rubel Startkapital ist das praktisch ausgeschlossen.</li>
-        <li>EUR/USD wird nur in der Simulation mit Yahoo-Daten gehandelt, weil Bybit dieses Paar nicht anbietet. Am Wochenende ist der Devisenmarkt geschlossen, die Daten gelten dann als veraltet.</li>
+        <li>Agent Delta handelt sechs Währungspaare in beide Richtungen, nur in der Simulation mit Yahoo-Kursen, weil Bybit keine Währungspaare anbietet. Im Test über fast fünf Jahre kam dabei etwa null heraus. Am Wochenende ist der Devisenmarkt geschlossen, Entscheidungen warten dann bis Sonntagabend.</li>
+        <li>Im Bereich „Selbst handeln“ hast du ein eigenes Übungskonto mit 5.000 Rubel. Zusammen mit den drei Agenten sind es 20.000 Rubel virtuelles Geld.</li>
         <li>Aktien und Edelmetalle sind noch nicht eingebaut, weil bisher keine getestete kostenlose Minutenquelle zur Verfügung steht.</li>
         <li>Gebühren sind zweimal 0,1 Prozent je Trade (Kauf und Verkauf). Bei Tagesregeln mit wenigen, länger laufenden Trades fallen sie kaum ins Gewicht.</li>
         <li>Das ist keine Anlageberatung.</li>
@@ -441,13 +520,15 @@ const ago = (sec) => {
   return `vor ${Math.round(sec / 86400)} Tagen`;
 };
 const agoIso = (iso) => (iso ? ago((nowMs() - Date.parse(iso)) / 1000) : "nie");
-const SYM = (s) => (s === "EURUSD=X" ? "EUR/USD" : /USDT$/.test(s) ? s.slice(0, -4) + "/USDT" : s);
+const SYM = (s) => (/^[A-Z]{6}=X$/.test(s) ? s.slice(0, 3) + "/" + s.slice(3, 6) : /USDT$/.test(s) ? s.slice(0, -4) + "/USDT" : s);
 const MARKET = { crypto: "Krypto", forex: "Forex", stocks: "Aktien", metals: "Edelmetalle" };
 const SOURCE = { bybit_spot: "Bybit Spot (öffentlich)", yahoo_chart: "Yahoo Finance (inoffiziell)" };
 const SESSION = { asia: "Asien-Sitzung", eu: "Europa-Sitzung", us: "USA-Sitzung" };
 const DECISION = { entry_signal: ["Einstieg möglich", "go"], no_signal: ["Kein Signal", "plain"], blocked: ["Gesperrt", "warn"] };
 const TREND = { up: "Aufwärts", down: "Abwärts", flat: "Seitwärts" };
-const CLOSE = { stop: "Stop-Loss", target: "Kursziel", time: "Zeitlimit", kill_switch: "Kill-Switch", halted: "Agent angehalten", stopped: "Agent gestoppt", market_disabled: "Markt abgeschaltet", rehearsal_exit: "Probelauf" };
+const CLOSE = { stop: "Stop-Loss", target: "Kursziel", time: "Zeitlimit", kill_switch: "Kill-Switch", halted: "Agent angehalten", stopped: "Agent gestoppt", market_disabled: "Markt abgeschaltet", rehearsal_exit: "Probelauf",
+  signal: "Regel aus", trailing_stop: "Trailing-Stop", manual: "Selbst geschlossen", retired: "Ruhestand", bad_config: "Einstellung ungültig" };
+const isManual = (a) => a?.config?.engine === "manual";
 const AGENT_STATUS = { active: ["Aktiv", "go"], stopped: ["Gestoppt", "plain"], halted: ["Angehalten", "bad"], pending_approval: ["Wartet auf Freigabe", "warn"] };
 const TAGS = { rate_decision: "Zinsentscheid", shock: "Marktschock", war_escalation: "Eskalation", inflation_jobs: "Inflation und Arbeitsmarkt", trade_policy: "Handelspolitik", crypto_regulation: "Krypto-Regulierung", central_bank: "Zentralbank", crypto: "Krypto", forex: "Devisen" };
 const IMPACT = { high: ["Hoch", "bad"], medium: ["Mittel", "warn"], low: ["Gering", "plain"] };
@@ -552,7 +633,7 @@ function derive(D) {
 /* ---------- render: hero ---------- */
 function renderHero(D, X) {
   const s = D.settings;
-  const active = D.agents.filter((a) => a.status === "active");
+  const active = D.agents.filter((a) => a.status === "active" && !isManual(a));
   const pending = D.agents.filter((a) => a.status === "pending_approval");
   let word, sub, on = false;
   if (s.kill_switch) { word = "Pausiert"; sub = "Der Kill-Switch ist an. Es werden nur Marktdaten gesammelt und bewertet, es werden keine Trades eröffnet."; }
@@ -727,13 +808,19 @@ function marketDetail(r, err) {
 /** One line that says how an agent trades: trend agents (strategy.rule) decide once per bar, the old minute agent by signal quality. */
 function agentCfgText(cfg, mk, retired) {
   const s = cfg.strategy || {};
+  if (cfg.engine === "manual") return `Dein eigenes Übungskonto. Hier handelt kein Agent: du kaufst und verkaufst selbst im Bereich <a href="#handeln">Selbst handeln</a>. Märkte: ${esc(mk || "–")}. Krypto nur Kauf, Währungen in beide Richtungen, kein Hebel.`;
   if (retired) return "Im Ruhestand: Diese Minuten-Strategie wurde durch die Trend-Agenten ersetzt. Sie eröffnet keine neuen Trades mehr, ihre letzten Positionen wurden geschlossen.";
   if (s.rule) {
-    const n = Math.max(1, (cfg.markets?.crypto || []).length);
+    const nCrypto = (cfg.markets?.crypto || []).length, nFx = (cfg.markets?.forex || []).length;
+    const n = Math.max(1, nCrypto + nFx);
     const share = (100 / n) * (Number.isFinite(s.scale) ? s.scale : 1);
     const when = Number(s.tf) === 1440 ? "einmal am Tag nach Tagesschluss (00:00 UTC, 03:00 Uhr Moskau)" : `nach jeder ${num(Number(s.tf) / 60, 0)}-Stunden-Kerze`;
-    const minOrder = Number(cfg.risk?.min_order_usd) > 0 ? Number(cfg.risk.min_order_usd) : null;
-    return `Regel: ${esc(s.label || s.rule)}. Entscheidung ${esc(when)}. Märkte: ${esc(mk || "–")}, nur Kauf, kein Hebel. Größe je Markt ${esc(num(share, 1))} % des Kapitals${s.sizing === "vol" ? ", bei starker Schwankung weniger" : ""}${minOrder ? `, aber mindestens ${esc(num(minOrder, 0))} USDT, weil Bybit Orders erst ab 5 USDT annimmt` : ""}. Rückgangs-Limit ${esc(cfg.risk?.max_drawdown_pct ?? 10)} %. Schutz: keine neuen Käufe 30 Minuten nach wichtigen Nachrichten und rund um Zinsentscheide und US-Arbeitsmarktdaten, halbe Größe an Tagen mit vielen wichtigen Krypto-Nachrichten${minOrder ? " (nie unter die Mindestgröße)" : ""}.`;
+    const minOrder = nCrypto && Number(cfg.risk?.min_order_usd) > 0 ? Number(cfg.risk.min_order_usd) : null;
+    const twoWay = nFx > 0 && cfg.allow_short?.forex === true;
+    const how = twoWay ? "Kauf, wenn die Regel auf dem Kurs an ist, Verkauf (short), wenn sie auf dem Kehrwert an ist, nie beides zugleich, kein Hebel" : "nur Kauf, kein Hebel";
+    const newsOf = nCrypto && nFx ? "Krypto- bzw. Devisen-Nachrichten" : nFx ? "Devisen-Nachrichten" : "Krypto-Nachrichten";
+    const weekend = nFx ? " Am Wochenende ist der Devisenmarkt zu, Entscheidungen warten dann bis Sonntagabend." : "";
+    return `Regel: ${esc(s.label || s.rule)}. Entscheidung ${esc(when)}. Märkte: ${esc(mk || "–")}, ${esc(how)}. Größe je Markt ${esc(num(share, 1))} % des Kapitals${s.sizing === "vol" ? ", bei starker Schwankung weniger" : ""}${minOrder ? `, aber mindestens ${esc(num(minOrder, 0))} USDT, weil Bybit Orders erst ab 5 USDT annimmt` : ""}. Rückgangs-Limit ${esc(cfg.risk?.max_drawdown_pct ?? 10)} %. Schutz: keine neuen Einstiege 30 Minuten nach wichtigen Nachrichten und rund um Zinsentscheide und US-Arbeitsmarktdaten, halbe Größe an Tagen mit vielen wichtigen ${esc(newsOf)}${minOrder ? " (nie unter die Mindestgröße)" : ""}.${esc(weekend)}`;
   }
   return `Märkte: ${esc(mk || "–")}. Risiko ${esc(cfg.risk?.risk_per_trade_pct ?? "–")} % je Trade, höchstens ${esc(cfg.risk?.max_positions ?? "–")} Positionen, Tagesverlust-Limit ${esc(cfg.risk?.daily_loss_pct ?? "–")} %, Mindestqualität ${esc(s.min_quality ?? "–")}, Short ${cfg.allow_short?.crypto || cfg.allow_short?.forex ? "teilweise erlaubt" : "aus"}.`;
 }
@@ -743,7 +830,7 @@ function renderAgents(D, X) {
   if (!D.agents.length) { $("#agents").innerHTML = `<div class="empty">Noch kein Agent angelegt.</div>`; return; }
   $("#agents").innerHTML = D.agents.map((a) => {
     const retired = a.config?.strategy?.retired === true;
-    const st = retired ? ["Im Ruhestand", "plain"] : AGENT_STATUS[a.status] || [a.status, "plain"];
+    const st = retired ? ["Im Ruhestand", "plain"] : isManual(a) ? ["Du handelst", "ok"] : AGENT_STATUS[a.status] || [a.status, "plain"];
     const today = a.stats.pnl_today || 0;
     const todayEur = X.eur ? today / X.eur : null;
     const goal = Number.isFinite(todayEur) ? Math.max(0, Math.min(100, (todayEur / s.replication_threshold_eur) * 100)) : 0;
@@ -751,8 +838,9 @@ function renderAgents(D, X) {
     const mk = [...(cfg.markets?.crypto || []), ...(cfg.markets?.forex || [])].map(SYM).join(", ");
     const parent = a.parent_id ? X.agentName.get(a.parent_id) || "unbekannt" : null;
     const rubAgent = cfg.display?.currency === "RUB" && X.alt?.code === "RUB";
-    const canStart = !retired && (a.status === "stopped" || a.status === "halted");
-    const canStop = !retired && (a.status === "active" || a.status === "halted");
+    const own = isManual(a);
+    const canStart = !retired && !own && (a.status === "stopped" || a.status === "halted");
+    const canStop = !retired && !own && (a.status === "active" || a.status === "halted");
     return `<article class="agent">
       <div class="agent-head">
         <div><h3>${esc(a.name)} <span class="chip ${st[1]}">${esc(st[0])}</span></h3>
@@ -773,9 +861,9 @@ function renderAgents(D, X) {
         <div><dt>Trades, Treffer</dt><dd>${esc(a.stats.trades)}, ${a.stats.win_rate === null ? "–" : esc(pc(a.stats.win_rate * 100, 0))}</dd></div>
         <div><dt>Gewinnfaktor</dt><dd>${a.stats.profit_factor === null ? "–" : esc(num(a.stats.profit_factor, 2))}</dd></div>
         <div><dt>Mittleres Ergebnis je Trade</dt><dd>${esc(num(a.stats.avg_r || 0, 2))} R</dd></div>
-        <div><dt>Letzter Lauf</dt><dd>${esc(a.last_tick_at ? agoIso(a.last_tick_at) : "noch keiner")}</dd></div>
+        <div><dt>${own ? "Bewertet" : "Letzter Lauf"}</dt><dd>${esc(a.last_tick_at ? agoIso(a.last_tick_at) : "noch keiner")}</dd></div>
       </dl>
-      ${retired ? "" : `<div class="goal">
+      ${retired || own ? "" : `<div class="goal">
         <div class="small">Weg zur Vermehrung: ${Number.isFinite(todayEur) ? esc(signed(todayEur)) + " Euro" : "Euro-Kurs nicht aktuell"} von ${esc(num(s.replication_threshold_eur, 0))} Euro heute</div>
         <div class="q-bar" role="img" aria-label="${esc(num(goal, 0))} Prozent der Vermehrungsschwelle"><i class="pass" style="width:${goal}%"></i></div>
       </div>`}
@@ -1248,9 +1336,205 @@ function renderBbChart(pairs) {
     <p class="small muted" style="margin-top:4px">Werte in US-Dollar, kumuliert.</p></div>`;
 }
 
+/* ---------- own trading ("Selbst handeln"): paper account of the user, live prices from the API ---------- */
+const mt = { q: null, at: 0, busy: false, err: null, sel: null, side: "long", detail: null, detailAt: 0, confirm: null, closing: null, sending: false };
+const MT_REFRESH_MS = 25000;
+const manualAgent = (D) => (D?.agents || []).find(isManual) || null;
+const mtAmount = () => { const v = String($("#mt-amt")?.value || "").replace(/[^\d]/g, ""); return v ? Number(v) : 0; };
+const rubOf = (usdV, rate) => (Number.isFinite(usdV) && rate ? usdV * rate : NaN);
+const rubTxt = (v, sg = false) => (Number.isFinite(v) ? (sg ? signed(v, 0) : num(v, 0)) + " ₽" : "–");
+function mtRate() { const D = state.data; return mt.q?.usdrub || D?.settings?.usdrub_rate || null; }
+function mtQuote(sym) {
+  if (mt.detail && mt.detail.symbol === sym && !mt.detail.error) return mt.detail;
+  return (mt.q?.quotes || []).find((x) => x.symbol === sym) || null;
+}
+function mtMarkets() {
+  const D = state.data;
+  const list = mt.q?.quotes || (D?.manual?.markets || []).map((m) => ({ symbol: m.symbol, name: m.name, market: m.market, can_short: m.can_short }));
+  return list;
+}
+async function mtLoad(force) {
+  if (mt.busy || (!force && Date.now() - mt.at < MT_REFRESH_MS)) return;
+  mt.busy = true;
+  try {
+    const r = await api({ action: "manual_quote" });
+    if (r.status === 401) { logout("Der Zugangscode wurde nicht akzeptiert."); return; }
+    if (r.status !== 200 || !r.data || !Array.isArray(r.data.quotes)) throw new Error(r.data?.error || "HTTP " + r.status);
+    mt.q = r.data; mt.at = Date.now(); mt.err = null;
+  } catch (e) {
+    mt.err = e && e.name === "AbortError" ? "Zeitüberschreitung" : String(e && e.message ? e.message : e).slice(0, 80);
+  } finally { mt.busy = false; }
+  if (!mt.sel) mt.sel = mtMarkets()[0]?.symbol || null;
+  if (state.view === "handeln") renderTrade();
+  mtDetail(force);
+}
+async function mtDetail(force) {
+  const sym = mt.sel;
+  if (!sym || (!force && mt.detail?.symbol === sym && Date.now() - mt.detailAt < MT_REFRESH_MS)) return;
+  try {
+    const r = await api({ action: "manual_quote", symbol: sym });
+    const q = r.status === 200 ? r.data?.quotes?.[0] : null;
+    if (q && !q.error) { mt.detail = q; mt.detailAt = Date.now(); }
+  } catch {}
+  if (state.view === "handeln" && mt.sel === sym) renderTrade();
+}
+function bigChart(arr) {
+  if (!arr || arr.length < 2) return `<p class="small muted">Verlauf wird geladen …</p>`;
+  // drawn at the real width of its box, so the labels keep their size on phone and desktop
+  const W = Math.max(260, Math.floor($("#mt-chart")?.clientWidth || 600)), H = 130, lo = Math.min(...arr), hi = Math.max(...arr), span = hi - lo || 1;
+  const pts = arr.map((v, i) => `${((i / (arr.length - 1)) * (W - 8) + 4).toFixed(1)},${(H - 16 - ((v - lo) / span) * (H - 32)).toFixed(1)}`);
+  const up = arr[arr.length - 1] >= arr[0];
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-label="Kursverlauf der letzten ${arr.length} Stunden, von ${esc(px(arr[0]))} bis ${esc(px(arr[arr.length - 1]))}">
+    <polyline points="${pts.join(" ")}" fill="none" stroke="${up ? "var(--gain)" : "var(--loss)"}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="4" y="11" font-size="12" fill="var(--ink-3)">Hoch ${esc(px(hi))}</text><text x="4" y="${H - 2}" font-size="12" fill="var(--ink-3)">Tief ${esc(px(lo))}</text>
+    <text x="${W - 4}" y="${H - 2}" text-anchor="end" font-size="12" fill="var(--ink-3)">letzte ${arr.length} Stunden</text></svg>`;
+}
+function renderTrade() {
+  const D = state.data; if (!D) return;
+  const A = manualAgent(D), rate = mtRate();
+  if (!A) {
+    $("#mt-account").innerHTML = ""; $("#mt-list").innerHTML = ""; $("#mt-ticket").hidden = true;
+    $("#mt-positions").innerHTML = `<div class="empty">Dein Übungskonto ist noch nicht angelegt.</div>`; $("#mt-closed").innerHTML = "";
+    return;
+  }
+  $("#mt-ticket").hidden = false;
+  const mine = (D.open_positions || []).filter((p) => p.agent_id === A.id);
+  const inPos = mine.reduce((s, p) => s + p.value, 0);
+  const startRub = A.config?.display?.capital_rub ?? rubOf(A.capital_start, rate);
+  const change = A.equity - A.capital_start;
+  $("#mt-account").innerHTML = [
+    ["Dein Kapital", rubTxt(rubOf(A.equity, rate)), `${usd(A.equity)}, Start ${rubTxt(startRub)}`, ""],
+    ["Frei zum Handeln", rubTxt(rubOf(A.cash, rate)), usd(A.cash), ""],
+    ["In Positionen", rubTxt(rubOf(inPos, rate)), `${mine.length} offen`, ""],
+    ["Seit Start", rubTxt(rubOf(change, rate), true), `${signed((change / A.capital_start) * 100)} %, nach Kosten`, clsPnl(change)],
+    ["Abgeschlossen", String(A.stats.trades || 0), A.stats.trades ? `${pc((A.stats.win_rate || 0) * 100, 0)} im Plus` : "noch kein Trade", ""],
+  ].map(([k, v, sm, c]) => `<div><dt>${esc(k)}</dt><dd class="${c}">${esc(v)}<small>${esc(sm)}</small></dd></div>`).join("");
+
+  const list = mtMarkets();
+  if (!mt.sel && list.length) mt.sel = list[0].symbol;
+  $("#mt-list").innerHTML = list.map((m) => {
+    const q = mtQuote(m.symbol);
+    const price = q && Number.isFinite(q.mid) ? px(q.mid) : q?.error ? "kein Kurs" : "…";
+    const ch = q && Number.isFinite(q.change_pct) ? `<span class="${clsPnl(q.change_pct)}">${esc(signed(q.change_pct))} % in 24 h</span>` : `<span>${esc(m.market === "forex" ? "Währung" : "Krypto")}</span>`;
+    const closed = q && q.fresh === false ? `<span class="chip warn">geschlossen</span>` : "";
+    return `<button class="mt-m" type="button" data-mt-sel="${esc(m.symbol)}" aria-pressed="${mt.sel === m.symbol}"><b>${esc(m.name)}</b><span>${esc(price)}</span>${ch}${closed}</button>`;
+  }).join("") + (mt.err ? `<p class="small loss" style="grid-column:1/-1">Kurse konnten nicht geladen werden (${esc(mt.err)}). Nächster Versuch automatisch.</p>` : "");
+
+  const m = list.find((x) => x.symbol === mt.sel) || list[0];
+  const q = m ? mtQuote(m.symbol) : null;
+  const fx = m?.market === "forex";
+  if (!m?.can_short && mt.side === "short") mt.side = "long";
+  $("#mt-head").innerHTML = m ? `<div class="ticket-head">
+      <div><div class="small muted">${esc(m.name === SYM(m.symbol) ? (m.market === "forex" ? "Währungspaar" : "Krypto") + " · " + m.name : m.name + " · " + SYM(m.symbol))}</div><div class="big">${esc(q && Number.isFinite(q.mid) ? px(q.mid) : "…")}</div>
+        ${q && Number.isFinite(q.change_pct) ? `<div class="small ${clsPnl(q.change_pct)}">${esc(signed(q.change_pct))} % in 24 Stunden</div>` : ""}</div>
+      <div class="small muted" style="text-align:right">${q && Number.isFinite(q.bid) ? `Verkauf ${esc(px(q.bid))} · Kauf ${esc(px(q.ask))}<br>` : ""}${q?.at ? `Kurs von ${esc(q.source === "bybit" ? "Bybit" : "Yahoo")}, ${esc(agoIso(q.at))}` : "Kurs wird geladen …"}</div>
+    </div>` : "";
+  $("#mt-chart").innerHTML = m ? bigChart(mt.detail?.symbol === m.symbol ? mt.detail.chart : null) : "";
+  $("#mt-side").innerHTML = !m ? "" : m.can_short
+    ? `<div class="sidesw" role="group" aria-label="Richtung"><button type="button" class="buy" data-mt-side="long" aria-pressed="${mt.side === "long"}">Kaufen<small>Gewinn, wenn ${esc(SYM(m.symbol))} steigt</small></button><button type="button" class="sell" data-mt-side="short" aria-pressed="${mt.side === "short"}">Verkaufen<small>Gewinn, wenn ${esc(SYM(m.symbol))} fällt</small></button></div>`
+    : `<p class="small muted">Krypto kannst du hier nur kaufen (Spot, kein Leerverkauf). Gewinn, wenn der Kurs steigt.</p>`;
+  mtTicketDyn();
+  mtPositions(D, A, rate);
+  mtClosed(D, A, rate);
+}
+/** Preview and action button: re-rendered on every keystroke, the input itself stays untouched (iPhone keyboard stays open). */
+function mtTicketDyn() {
+  const D = state.data; if (!D) return;
+  const A = manualAgent(D), rate = mtRate(); if (!A) return;
+  const m = mtMarkets().find((x) => x.symbol === mt.sel); if (!m) return;
+  const q = mtQuote(m.symbol), amt = mtAmount(), free = rubOf(A.cash, rate);
+  const side = m.can_short ? mt.side : "long";
+  let problem = null;
+  if (D.settings.kill_switch) problem = "Der Kill-Switch ist an. Neue Trades sind gesperrt, auch eigene. Deine offenen Positionen kannst du weiter schließen.";
+  else if (D.settings.markets_enabled && D.settings.markets_enabled[m.market] === false) problem = m.market === "forex" ? "Währungen sind gerade ausgeschaltet." : "Krypto ist gerade ausgeschaltet.";
+  else if (!q || !Number.isFinite(q.mid)) problem = q?.error ? `Kein Kurs: ${q.error}` : null;
+  else if (q.fresh === false) problem = "Der Devisenmarkt ist gerade geschlossen (Wochenende). Krypto kannst du jederzeit handeln.";
+  else if (amt && q.min_rub && amt < q.min_rub) problem = `Mindestens ${num(q.min_rub, 0)} ₽${m.market === "crypto" ? ", weil Bybit Orders erst ab 5 USDT annimmt" : ""}.`;
+  else if (amt && Number.isFinite(free) && amt > free + 0.5) problem = `Du hast nur ${num(Math.floor(free), 0)} ₽ frei.`;
+  const prev = $("#mt-prev"), act = $("#mt-act");
+  if (problem) { prev.className = "preview bad"; prev.textContent = problem; }
+  else if (!q) { prev.className = "preview"; prev.textContent = "Kurs wird geladen …"; }
+  else if (!amt) { prev.className = "preview"; prev.innerHTML = `Gib ein, wie viel du einsetzen willst. Frei: <b>${esc(num(Math.floor(free), 0))} ₽</b>. Mindestens ${esc(num(q.min_rub || 0, 0))} ₽.`; }
+  else {
+    const fill = side === "long" ? q.ask * (1 + q.slip_bps / 1e4) : q.bid * (1 - q.slip_bps / 1e4);
+    const cost = (amt * q.round_trip_pct) / 100;
+    prev.className = "preview";
+    prev.innerHTML = `Du ${side === "long" ? "kaufst" : "verkaufst"} <b>${esc(m.name)}</b> für <b>${esc(num(amt, 0))} ₽</b> (${esc(usd(amt / rate))}) zu etwa <b>${esc(px(fill))}</b>.<br>
+      Kosten für Ein- und Ausstieg zusammen etwa <b>${esc(num(cost, cost < 10 ? 1 : 0))} ₽</b> (${esc(num(q.round_trip_pct, 2))} %). Erst wenn der Kurs um mehr als ${esc(num(q.round_trip_pct, 2))} % ${side === "long" ? "steigt" : "fällt"}, bist du im Plus.`;
+  }
+  const ok = !problem && q && amt > 0 && !mt.sending;
+  const label = `${side === "long" ? "Kaufen" : "Verkaufen"} für ${amt ? num(amt, 0) + " ₽" : "…"}`;
+  if (mt.confirm && mt.confirm.symbol === m.symbol && mt.confirm.side === side && mt.confirm.amount === amt && ok) {
+    act.innerHTML = `<div class="confirm" role="alertdialog" aria-label="Trade bestätigen"><b>Wirklich ${side === "long" ? "kaufen" : "verkaufen"}?</b>
+      <span>${esc(m.name)} für ${esc(num(amt, 0))} ₽, virtuelles Geld, zum Kurs im Moment der Bestätigung.</span>
+      <div class="row"><button class="btn ${side === "long" ? "buy" : "sell"}" type="button" data-mt-go="1" ${mt.sending ? "disabled" : ""}>${mt.sending ? "Wird ausgeführt …" : `Ja, ${side === "long" ? "kaufen" : "verkaufen"}`}</button><button class="btn" type="button" data-mt-cancel="1">Abbrechen</button></div></div>`;
+  } else {
+    if (mt.confirm && !ok) mt.confirm = null;
+    act.innerHTML = `<button class="btn go ${side === "long" ? "buy" : "sell"}" type="button" data-mt-ask="1" ${ok ? "" : "disabled"}>${esc(label)}</button>`;
+  }
+}
+function mtPositions(D, A, rate) {
+  const mine = (D.open_positions || []).filter((p) => p.agent_id === A.id);
+  if (!mine.length) { $("#mt-positions").innerHTML = `<div class="empty">Keine offene Position. Wähle oben einen Markt und einen Betrag.</div>`; return; }
+  const nameOf = (s) => (mtMarkets().find((m) => m.symbol === s) || {}).name || SYM(s);
+  $("#mt-positions").innerHTML = `<div class="scroll"><table class="rt" id="mt-pos-table"><thead><tr><th>Markt</th><th class="num">Einsatz</th><th class="num">Einstieg</th><th class="num">Jetzt</th><th class="num">Ergebnis beim Schließen<small class="sub">geschätzt, nach Kosten</small></th><th>Seit</th><th></th></tr></thead><tbody>${mine.map((p) => {
+    const q = mtQuote(p.symbol);
+    // estimated result when closing now: closing price is the bid (long) or ask (short) plus slippage, plus the exit fee
+    let est = p.unrealized_usd;
+    if (q && Number.isFinite(q.bid) && q.fresh !== false) {
+      const exit = p.side === "long" ? q.bid * (1 - q.slip_bps / 1e4) : q.ask * (1 + q.slip_bps / 1e4);
+      est = (exit - p.entry_price) * p.qty * (p.side === "long" ? 1 : -1) - p.entry_fee - (exit * p.qty * q.fee_bps) / 1e4;
+    }
+    const now = q && Number.isFinite(q.mid) ? q.mid : p.mark;
+    const closing = mt.closing === p.id;
+    return `<tr>
+      ${tdl("Markt", "", `<b>${esc(nameOf(p.symbol))}</b> ${p.side === "long" ? "gekauft" : "verkauft"}<small class="sub">${p.side === "long" ? "Gewinn, wenn der Kurs steigt" : "Gewinn, wenn der Kurs fällt"}</small>`)}
+      ${tdl("Einsatz", "num", `${esc(rubTxt(rubOf(p.entry_notional, rate)))}<small class="sub">${esc(usd(p.entry_notional))}</small>`)}
+      ${tdl("Einstieg", "num", esc(px(p.entry_price)))}
+      ${tdl("Jetzt", "num", esc(px(now)))}
+      ${tdl("Ergebnis beim Schließen", `num ${clsPnl(est)}`, `<b>${esc(rubTxt(rubOf(est, rate), true))}</b><small class="sub">${esc(usd(est, true))}</small>`)}
+      ${tdl("Seit", "nw", esc(T(p.entry_time)))}
+      ${tdl("", "num", closing
+        ? `<span class="rowbtns"><button class="btn sm ${p.side === "long" ? "sell" : "buy"}" type="button" data-mt-close-go="${esc(p.id)}" ${mt.sending ? "disabled" : ""}>${mt.sending ? "…" : "Ja, schließen"}</button><button class="btn sm" type="button" data-mt-close-cancel="1">Nein</button></span>`
+        : `<button class="btn sm" type="button" data-mt-close="${esc(p.id)}">Schließen</button>`)}</tr>`;
+  }).join("")}</tbody></table></div>
+  <p class="small muted" style="margin-top:6px">Schließen verkauft eine gekaufte Position zum aktuellen Verkaufskurs und kauft eine verkaufte zum aktuellen Kaufkurs zurück. Am Wochenende geht das bei Währungen nicht.</p>`;
+}
+function mtClosed(D, A, rate) {
+  const T0 = state.tr;
+  if (!T0.loaded) { $("#mt-closed").innerHTML = `<div class="empty">${A.stats.trades ? "Wird geladen …" : "Noch kein abgeschlossener Trade."}</div>`; return; }
+  const rows = T0.rows.filter((t) => t.agent_id === A.id);
+  if (!rows.length) { $("#mt-closed").innerHTML = `<div class="empty">Noch kein abgeschlossener Trade.</div>`; return; }
+  const nameOf = (s) => (mtMarkets().find((m) => m.symbol === s) || {}).name || SYM(s);
+  const sum = rows.reduce((s, t) => s + t.pnl_usd, 0);
+  $("#mt-closed").innerHTML = `<div class="scroll"><table class="rt" id="mt-closed-table"><thead><tr><th>Geschlossen</th><th>Markt</th><th class="num">Einstieg → Ausstieg</th><th class="num">Kosten</th><th class="num">Ergebnis</th></tr></thead><tbody>${rows.map((t) => `<tr>
+    ${tdl("Geschlossen", "nw", esc(T(t.exit_time)))}
+    ${tdl("Markt", "", `<b>${esc(nameOf(t.symbol))}</b> ${t.side === "long" ? "gekauft" : "verkauft"}`)}
+    ${tdl("Einstieg → Ausstieg", "num", `${esc(px(t.entry_price))} → ${esc(px(t.exit_price))}`)}
+    ${tdl("Kosten", "num", esc(rubTxt(rubOf((t.entry_fee || 0) + (t.exit_fee || 0), rate))))}
+    ${tdl("Ergebnis", `num ${clsPnl(t.pnl_usd)}`, `<b>${esc(rubTxt(rubOf(t.pnl_usd, rate), true))}</b><small class="sub">${esc(usd(t.pnl_usd, true))}</small>`)}</tr>`).join("")}</tbody>
+    <tfoot><tr>${tdl("Summe", "", `${esc(rows.length)} Trades`)}${tdl("", "opt", "")}${tdl("", "num opt", "")}${tdl("", "num opt", "")}${tdl("Ergebnis", `num ${clsPnl(sum)}`, esc(rubTxt(rubOf(sum, rate), true)))}</tr></tfoot></table></div>
+  <p class="small muted" style="margin-top:6px">Kosten zeigt nur die Gebühren. Spread und Schlupf stecken schon in den Preisen.</p>`;
+}
+async function mtSend(body) {
+  mt.sending = true; mtTicketDyn(); if (state.data) renderTrade();
+  let res = null;
+  try {
+    const r = await api(body);
+    if (r.status === 401) { logout("Der Zugangscode wurde nicht akzeptiert."); return null; }
+    if (r.status !== 200 || !r.data || r.data.ok !== true) toast("Das hat nicht geklappt", (r.data && r.data.error) || "HTTP " + r.status);
+    else res = r.data;
+  } catch { toast("Keine Verbindung", "Nicht bestätigt. Bitte prüfe deine Positionen."); }
+  mt.sending = false; mt.confirm = null; mt.closing = null;
+  state.busy = false;
+  await load(true);
+  mtLoad(true);
+  return res;
+}
+
 /* ---------- areas of the app ---------- */
-const VIEWS = ["uebersicht", "trades", "maerkte", "bybit", "news", "einstellungen"];
-const SECTION_VIEW = { "s-capital": "uebersicht", "s-bbsum": "uebersicht", "s-agents": "uebersicht", "s-chart": "uebersicht", "s-pnl": "trades", "s-pos": "trades",
+const VIEWS = ["uebersicht", "handeln", "trades", "maerkte", "bybit", "news", "einstellungen"];
+const SECTION_VIEW = { "s-trade": "handeln", "s-capital": "uebersicht", "s-bbsum": "uebersicht", "s-agents": "uebersicht", "s-chart": "uebersicht", "s-pnl": "trades", "s-pos": "trades",
   "s-markets": "maerkte", "s-lessons": "maerkte", "s-bybit": "bybit", "s-news": "news", "s-notes": "news", "s-settings": "einstellungen" };
 function showView(name) {
   const v = VIEWS.includes(name) ? name : "uebersicht";
@@ -1265,6 +1549,7 @@ function showView(name) {
     const top = nav.parentElement ? nav.previousElementSibling.getBoundingClientRect().bottom + window.scrollY : 0;
     if (window.scrollY > top) window.scrollTo(0, top);
     if (v === "bybit") { if (bb.data) renderBybit(); bbLoad(); }
+    if (v === "handeln") { renderTrade(); mtLoad(); }
   }
 }
 function routeFromHash() {
@@ -1274,7 +1559,7 @@ function routeFromHash() {
 }
 window.addEventListener("hashchange", routeFromHash);
 let bbResizeT = null;
-window.addEventListener("resize", () => { clearTimeout(bbResizeT); bbResizeT = setTimeout(() => { if (bb.data && state.view === "bybit") renderBbChart(bb.data.pairs || []); }, 150); });
+window.addEventListener("resize", () => { clearTimeout(bbResizeT); bbResizeT = setTimeout(() => { if (bb.data && state.view === "bybit") renderBbChart(bb.data.pairs || []); if (state.view === "handeln" && state.data) renderTrade(); }, 150); });
 
 /* ---------- main render ---------- */
 function render() {
@@ -1282,6 +1567,7 @@ function render() {
   const X = derive(D);
   renderHero(D, X); renderLedger(D, X); renderMarkets(D); renderAgents(D, X); renderChart(D, X);
   renderCapital(D, X); renderPnl(); renderPositions(D, X); renderLessons(D, X); renderNews(D); renderNotes(D); renderSettings(D);
+  if (state.view === "handeln") renderTrade();
   $("#simtag").textContent = D.settings.paper_only ? "Nur Simulation: virtuelles Geld, keine echten Orders" : "Achtung: Simulationsschutz ist aus";
   $("#foot").textContent = `Stand ${new Date(Date.parse(D.server_time)).toLocaleString("de-DE")}. Keine Anlageberatung.`;
 }
@@ -1302,7 +1588,8 @@ async function load(manual) {
     state.netErr = e && e.name === "AbortError" ? "Zeitüberschreitung" : String(e && e.message ? e.message : e).slice(0, 80);
     if (manual) toast("Aktualisierung fehlgeschlagen", state.netErr);
   } finally { state.busy = false; }
-  if (state.data) { render(); syncTrades(state.data); }
+  if (state.data) { render(); syncTrades(state.data).then(() => { if (state.view === "handeln") renderTrade(); }); }
+  if (state.view === "handeln") mtLoad();
 }
 async function act(body, okTitle) {
   const btns = document.querySelectorAll("button");
@@ -1341,7 +1628,33 @@ document.addEventListener("click", (ev) => {
   if (t.dataset.agentStart) return act({ action: "start", agent_id: t.dataset.agentStart }, "Agent gestartet");
   if (t.dataset.agentStop) return act({ action: "stop", agent_id: t.dataset.agentStop }, "Agent gestoppt");
   if (t.dataset.approve) return act({ action: "approve_agent", agent_id: t.dataset.approve, start: t.dataset.start === "1" }, "Agent freigegeben");
+  // own trading
+  if (t.dataset.mtSel) { mt.sel = t.dataset.mtSel; mt.confirm = null; renderTrade(); mtDetail(); return; }
+  if (t.dataset.mtSide) { mt.side = t.dataset.mtSide; mt.confirm = null; renderTrade(); return; }
+  if (t.dataset.mtAmt) {
+    const A = manualAgent(state.data), rate = mtRate();
+    const v = t.dataset.mtAmt === "all" ? Math.floor(rubOf(A?.cash, rate) || 0) : Number(t.dataset.mtAmt);
+    $("#mt-amt").value = v > 0 ? String(v) : ""; mt.confirm = null; mtTicketDyn(); return;
+  }
+  if (t.dataset.mtAsk) { const m = mtMarkets().find((x) => x.symbol === mt.sel); mt.confirm = { symbol: mt.sel, side: m?.can_short ? mt.side : "long", amount: mtAmount() }; mtTicketDyn(); return; }
+  if (t.dataset.mtCancel) { mt.confirm = null; mtTicketDyn(); return; }
+  if (t.dataset.mtGo && mt.confirm && !mt.sending) {
+    const c = mt.confirm, name = (mtMarkets().find((x) => x.symbol === c.symbol) || {}).name || SYM(c.symbol);
+    mtSend({ action: "manual_open", symbol: c.symbol, side: c.side, amount_rub: c.amount }).then((r) => {
+      if (r) { toast(`${name} ${c.side === "long" ? "gekauft" : "verkauft"}`, `${num(r.amount_rub, 0)} ₽ zu ${px(r.entry_price)}, Gebühr ${usd(r.fee_usd)}`); $("#mt-amt").value = ""; mtTicketDyn(); }
+    });
+    return;
+  }
+  if (t.dataset.mtClose) { mt.closing = Number(t.dataset.mtClose); renderTrade(); return; }
+  if (t.dataset.mtCloseCancel) { mt.closing = null; renderTrade(); return; }
+  if (t.dataset.mtCloseGo && !mt.sending) {
+    mtSend({ action: "manual_close", position_id: Number(t.dataset.mtCloseGo) }).then((r) => {
+      if (r) toast("Position geschlossen", `Ergebnis ${rubTxt(r.pnl_rub, true)} (${usd(r.pnl_usd, true)}) nach Kosten`);
+    });
+    return;
+  }
 });
+document.addEventListener("input", (ev) => { if (ev.target.id === "mt-amt") { mt.confirm = null; mtTicketDyn(); } });
 document.addEventListener("submit", (ev) => {
   if (ev.target.id === "set-form") {
     ev.preventDefault();

@@ -6,7 +6,7 @@ Oben in der App sieht man, ob die Agenten laufen und wann der letzte Minutenlauf
 
 ## Notbremse
 
-In der App: **Alle stoppen**. Das setzt die Notbremse (`kill_switch`) und stoppt alle Agenten. Offene Papier-Positionen werden im nächsten Lauf geschlossen (Minuten-Agenten nach höchstens einer Minute, Trend-Agenten nach höchstens 5 Minuten), das Spiegeln verkauft sie dann auch auf Bybit.
+In der App: **Alle stoppen**. Das setzt die Notbremse (`kill_switch`) und stoppt alle Agenten. Offene Papier-Positionen werden im nächsten Lauf geschlossen (Minuten-Agenten nach höchstens einer Minute, Trend-Agenten nach höchstens 5 Minuten), das Spiegeln verkauft sie dann auch auf Bybit. Währungspositionen von Delta werden am Wochenende erst geschlossen, wenn der Markt wieder offen ist. Das Handkonto („Ich · Selbst gehandelt“) wird nicht gestoppt: neue eigene Trades sind gesperrt, offene eigene Positionen bleiben, bis der Nutzer sie selbst schließt.
 
 Ohne App, im Supabase SQL-Editor:
 
@@ -38,13 +38,24 @@ on conflict do nothing;
 
 Das Datum 2028 oben zeigt nur das Format und ist nicht geprüft. Nicht enthalten sind US-Inflationsdaten und EZB-Termine.
 
+## Handkonto und Kurse prüfen
+
+```sql
+select name, round(cash, 2) as frei_usd, state->>'last_tick_at' as bewertet from agent_core.agents where config->>'engine' = 'manual';
+select id, symbol, side, round(entry_notional, 2) as einsatz_usd, entry_price, entry_time from agent_core.positions
+where status = 'open' and agent_id in (select id from agent_core.agents where config->>'engine' = 'manual');
+select symbol, market, last, quote_time, now() - quote_time as alter, source from agent_core.quotes order by symbol;
+```
+
+Ein Währungskurs, der älter als 20 Minuten ist, gilt als „Markt geschlossen“. Freitag 22:00 bis Sonntag 22:00 UTC ist das normal.
+
 ## Trend-Agenten prüfen
 
 ```sql
 select name, status, round(cash, 2) as cash, state->>'last_tick_at' as letzter_lauf, state->'decided' as entschiedene_kerzen
 from agent_core.agents where config->>'engine' = 'trend';
 
-select ts, symbol, decision, reason, features->>'want' as regel_an from agent_core.signals
+select ts, symbol, side, decision, reason, features->>'want_long' as kauf_an, features->>'want_short' as verkauf_an from agent_core.signals
 where agent_id in (select id from agent_core.agents where config->>'engine' = 'trend') order by ts desc limit 20;
 ```
 
@@ -106,4 +117,8 @@ Schlüssel nie in den Chat, ins Repo oder in eine Datei schreiben.
 
 ## Grenzen des kostenlosen Tarifs
 
-Die Zeitpläne erzeugen rund 195.000 Funktionsaufrufe pro Monat: bybit-demo 86.400, agent-tick 43.200, probe 51.840, trend-tick 8.640, news-scan 4.320. Der kostenlose Supabase-Tarif erlaubt 500.000. Die Datenbank bleibt klein, weil Probe-Protokolle nach 3 Tagen gelöscht werden.
+Die Zeitpläne erzeugen rund 195.000 Funktionsaufrufe pro Monat: bybit-demo 86.400, agent-tick 43.200, probe 51.840, trend-tick 8.640, news-scan 4.320. Dazu kommen die Aufrufe der App. Der kostenlose Supabase-Tarif erlaubt 500.000.
+
+Datenbank: am 4. November 2026 belegt mit 241 MB von 500 MB. Die größten Tabellen sind `cron.job_run_details` (63 MB, Protokoll jedes Zeitplan-Laufs), `hist_candles` und `hist_bars` (52 und 45 MB, Labor-Historie), `signals` (42 MB, vor allem vom alten Minuten-Agenten) und `candles` (12 MB). Probe-Protokolle werden nach 3 Tagen gelöscht, die anderen Tabellen wachsen weiter. Ein Aufräumplan (zum Beispiel `cron.job_run_details` älter als 7 Tage löschen) ist noch nicht eingerichtet, weil er bestehende Daten löscht und vorher freigegeben werden soll.
+
+Einmalige Aufräumaktion am 4. November 2026: agent-tick v3 hat nach dem Anlegen von Delta und dem Handkonto 9 Minuten lang Minutenkerzen für sechs neue Märkte gesammelt (GBP/USD, USD/JPY, AUD/USD, USD/CHF, USD/CAD, XAUT). Nach dem Ausrollen von v4 wurden diese 5.940 Kerzen und 6 Zeilen in `data_status` gelöscht. Für diese Märkte gab es vorher keine Daten.

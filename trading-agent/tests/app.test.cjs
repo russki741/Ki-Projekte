@@ -37,9 +37,9 @@ function serve() {
     const page = await ctx.newPage();
     const errors = []; const dialogs = []; const calls = []; const bbCalls = [];
     page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
-    page.on("console", (m) => { if (m.type() === "error" && !/fonts\.g|ERR_|net::|401|409|500/.test(m.text())) errors.push("console: " + m.text()); });
+    page.on("console", (m) => { if (m.type() === "error" && !/fonts\.g|ERR_|net::|401|409|422|500/.test(m.text())) errors.push("console: " + m.text()); });
     page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept(); });
-    let current = scenario; let tradesOverride = null; let bbCurrent = opts.bybit || bbfx.base; let bbReply = null;
+    let current = scenario; let tradesOverride = null; let bbCurrent = opts.bybit || bbfx.base; let bbReply = null; let manualReply = null;
     await page.route(API, async (route) => {
       const req = route.request();
       if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
@@ -51,6 +51,10 @@ function serve() {
         const db = (tradesOverride || current.trades || (() => []))();
         return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ server_time: new Date().toISOString(), trades: db.slice(body.offset, body.offset + body.limit), total: db.length }) });
       }
+      if (manualReply) { const r = manualReply(body); if (r) return route.fulfill({ status: r.status, headers: CORS, contentType: "application/json", body: JSON.stringify(r.body) }); }
+      if (body.action === "manual_quote") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify(fx.quotes(body.symbol)) });
+      if (body.action === "manual_open") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true, position_id: 999, symbol: body.symbol, side: body.side, entry_price: 70314.1, qty: 0.0001, notional_usd: body.amount_rub / 81.6699, fee_usd: 0.012, amount_rub: body.amount_rub, usdrub: 81.6699 }) });
+      if (body.action === "manual_close") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true, position_id: body.position_id, exit_price: 70280, fee_usd: 0.012, pnl_usd: 0.0123, pnl_rub: 1.0045, usdrub: 81.6699 }) });
       return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true }) });
     });
     await page.route(BB_API, async (route) => {
@@ -73,7 +77,7 @@ function serve() {
     await page.click("#gate-form button[type=submit]");
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForSelector(".mrow", { state: "attached" });
-    return { page, ctx, errors, dialogs, calls, bbCalls, setScenario: (s) => (current = s), setTrades: (f) => (tradesOverride = f), setBybit: (f) => (bbCurrent = f), setBbReply: (f) => (bbReply = f) };
+    return { page, ctx, errors, dialogs, calls, bbCalls, setScenario: (s) => (current = s), setTrades: (f) => (tradesOverride = f), setBybit: (f) => (bbCurrent = f), setBbReply: (f) => (bbReply = f), setManualReply: (f) => (manualReply = f) };
   }
   // switch area through the navigation bar, like a user
   async function go(page, v) {
@@ -293,6 +297,88 @@ function serve() {
   await go(r.page, "uebersicht");
   await r.page.screenshot({ path: path.join(SHOTS, "trend-mobile-agents.png"), fullPage: true });
   check("trend: no JS errors", r.errors.length === 0, r.errors.join(" | "));
+  await r.ctx.close();
+
+  // own trading ("Selbst handeln") and the currency agent Delta, on a phone
+  r = await run("own", fx.own, { width: 390, height: 844 }, "light");
+  const ownCards = r.page.locator("#agents article.agent");
+  check("own: four cards (Beta, Gamma, Delta, own account)", (await ownCards.count()) === 4, String(await ownCards.count()));
+  const deltaCard = await ownCards.nth(2).textContent();
+  check("own: Delta trades both directions, weekend note, size 8,3 %", /Verkauf \(short\)/.test(deltaCard) && /Wochenende/.test(deltaCard) && /8,3 %/.test(deltaCard) && /GBP\/USD/.test(deltaCard) && !/mindestens 6 USDT/.test(deltaCard), deltaCard.slice(0, 600));
+  const ownCard = ownCards.nth(3);
+  check("own: own account card without start/stop and without replication bar", /Du handelst/.test(await ownCard.textContent()) && (await ownCard.locator("[data-agent-start],[data-agent-stop],.goal").count()) === 0);
+  check("own: hero counts three agents, not the own account", /3 Agenten sind aktiv/.test(await r.page.textContent("#hero")), await r.page.textContent(".state-sub"));
+  await go(r.page, "handeln");
+  await r.page.waitForFunction(() => document.querySelectorAll("#mt-list .mt-m").length === 7 && /70\.300/.test(document.querySelector("#mt-list").textContent));
+  check("own: navigation opens the area, account tiles in rubles", /Dein Kapital/.test(await r.page.textContent("#mt-account")) && /Start 5\.000 ₽/.test(await r.page.textContent("#mt-account")));
+  check("own: seven markets, Bitcoin selected first, GBP/USD marked closed", (await r.page.getAttribute('[data-mt-sel="BTCUSDT"]', "aria-pressed")) === "true" && /geschlossen/.test(await r.page.textContent('[data-mt-sel="GBPUSD=X"]')));
+  await r.page.waitForFunction(() => document.querySelector("#mt-chart svg"));
+  check("own: crypto offers buying only, with chart", (await r.page.locator("#mt-side .sidesw").count()) === 0 && /nur kaufen/.test(await r.page.textContent("#mt-side")));
+  check("own: action disabled without amount", await r.page.locator("[data-mt-ask]").isDisabled());
+  await r.page.fill("#mt-amt", "400");
+  check("own: below minimum is explained, button disabled", /Mindestens 495 ₽/.test(await r.page.textContent("#mt-prev")) && await r.page.locator("[data-mt-ask]").isDisabled());
+  await r.page.fill("#mt-amt", "1000");
+  const prevTxt = await r.page.textContent("#mt-prev");
+  check("own: preview shows amount, price and round-trip costs", /1\.000 ₽/.test(prevTxt) && /2,4 ₽/.test(prevTxt) && /0,24 %/.test(prevTxt), prevTxt);
+  // a background refresh must not take the keyboard away or clear what was typed
+  await r.page.focus("#mt-amt");
+  await r.page.evaluate(() => load(true));
+  await r.page.waitForTimeout(200);
+  check("own: typing survives the 15 s refresh (focus and value kept)", await r.page.evaluate(() => document.activeElement && document.activeElement.id === "mt-amt" && document.activeElement.value === "1000"));
+  await r.page.click("[data-mt-ask]");
+  check("own: first tap asks for confirmation, nothing sent yet", /Wirklich kaufen/.test(await r.page.textContent("#mt-act")) && !r.calls.some((c) => c.action === "manual_open"));
+  await r.page.click("[data-mt-go]");
+  await r.page.waitForFunction(() => /Bitcoin gekauft/.test(document.querySelector("#toasts").textContent));
+  check("own: confirmed buy sends symbol, side and rubles", r.calls.some((c) => c.action === "manual_open" && c.symbol === "BTCUSDT" && c.side === "long" && c.amount_rub === 1000), JSON.stringify(r.calls.filter((c) => c.action === "manual_open")));
+  check("own: amount field cleared after the trade", (await r.page.inputValue("#mt-amt")) === "");
+  // currency: sell (short) with "everything free"
+  await r.page.click('[data-mt-sel="EURUSD=X"]');
+  await r.page.waitForSelector('#mt-side .sidesw [data-mt-side="short"]');
+  await r.page.click('[data-mt-side="short"]');
+  await r.page.click('[data-mt-amt="all"]');
+  const allVal = Number(await r.page.inputValue("#mt-amt"));
+  check("own: 'Alles frei' fills the free rubles", allVal > 2000 && allVal < 5000, String(allVal));
+  check("own: sell preview says profit when the price falls", /verkaufst/.test(await r.page.textContent("#mt-prev")) && /fällt/.test(await r.page.textContent("#mt-prev")));
+  await r.page.click("[data-mt-ask]"); await r.page.click("[data-mt-go]");
+  await r.page.waitForFunction(() => /EUR\/USD verkauft/.test(document.querySelector("#toasts").textContent));
+  check("own: short sent for EUR/USD", r.calls.some((c) => c.action === "manual_open" && c.symbol === "EURUSD=X" && c.side === "short" && c.amount_rub === allVal));
+  // closed market
+  await r.page.click('[data-mt-sel="GBPUSD=X"]');
+  await r.page.fill("#mt-amt", "1000");
+  check("own: closed currency market blocks the trade with a reason", /geschlossen/.test(await r.page.textContent("#mt-prev")) && await r.page.locator("[data-mt-ask]").isDisabled());
+  // refusal from the server is shown
+  r.setManualReply((b) => (b.action === "manual_open" ? { status: 422, body: { error: "Der Kill-Switch ist an: keine neuen Trades." } } : null));
+  await r.page.click('[data-mt-sel="ETHUSDT"]'); await r.page.fill("#mt-amt", "800");
+  await r.page.click("[data-mt-ask]"); await r.page.click("[data-mt-go]");
+  await r.page.waitForFunction(() => /Kill-Switch ist an/.test(document.querySelector("#toasts").textContent));
+  check("own: server refusal shown as message", true);
+  r.setManualReply(null);
+  // own positions and closing
+  await r.page.waitForSelector("#mt-pos-table");
+  const posTxt = await r.page.textContent("#mt-positions");
+  check("own: open own positions listed with rubles, Delta's not mixed in", (await r.page.locator("#mt-pos-table tbody tr").count()) === 2 && /Bitcoin/.test(posTxt) && /EUR\/USD/.test(posTxt) && /₽/.test(posTxt) && !/AUD/.test(posTxt) && !/undefined|NaN/.test(posTxt), posTxt.slice(0, 300));
+  await r.page.click('[data-mt-close="301"]');
+  check("own: closing asks first", (await r.page.locator('[data-mt-close-go="301"]').count()) === 1 && !r.calls.some((c) => c.action === "manual_close"));
+  await r.page.click('[data-mt-close-go="301"]');
+  await r.page.waitForFunction(() => /Position geschlossen/.test(document.querySelector("#toasts").textContent));
+  check("own: close sends the position id, result in rubles", r.calls.some((c) => c.action === "manual_close" && c.position_id === 301) && /\+1 ₽/.test(await r.page.textContent("#toasts")));
+  await r.page.waitForSelector("#mt-closed-table");
+  check("own: closed own trades listed (only own account)", (await r.page.locator("#mt-closed-table tbody tr").count()) === 2 && /Ethereum/.test(await r.page.textContent("#mt-closed")));
+  check("own: no horizontal overflow on phone", await noOverflow(r.page));
+  const qBefore = r.calls.filter((c) => c.action === "manual_quote").length;
+  await r.page.evaluate(() => load(true)); await r.page.waitForTimeout(300); await r.page.evaluate(() => load(true)); await r.page.waitForTimeout(300);
+  check("own: background refresh does not fetch quotes again within 25 s", r.calls.filter((c) => c.action === "manual_quote").length === qBefore, `${qBefore} -> ${r.calls.filter((c) => c.action === "manual_quote").length}`);
+  await r.page.screenshot({ path: path.join(SHOTS, "own-trading-mobile.png"), fullPage: true });
+  await go(r.page, "trades");
+  check("own: currency pairs named correctly in positions", /GBP\/USD/.test(await r.page.textContent("#positions")) && /USD\/JPY/.test(await r.page.textContent("#positions")));
+  check("own: no JS errors", r.errors.length === 0, r.errors.join(" | "));
+  await r.ctx.close();
+  r = await run("own-dark", fx.own, { width: 1280, height: 900 }, "dark", { hash: "#handeln" });
+  await r.page.waitForFunction(() => document.querySelectorAll("#mt-list .mt-m").length === 7 && document.querySelector("#mt-chart svg"));
+  await r.page.click('[data-mt-sel="USDJPY=X"]'); await r.page.click('[data-mt-side="short"]'); await r.page.fill("#mt-amt", "1500");
+  await r.page.screenshot({ path: path.join(SHOTS, "own-trading-desktop-dark.png"), fullPage: true });
+  check("own-dark: opens directly from the link #handeln", !(await r.page.locator('.view[data-view="handeln"]').isHidden()));
+  check("own-dark: no JS errors", r.errors.length === 0, r.errors.join(" | "));
   await r.ctx.close();
 
   await browser.close();

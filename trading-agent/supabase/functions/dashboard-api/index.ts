@@ -1,8 +1,11 @@
 // dashboard-api: read model and control actions for the simulation dashboard (GitHub Pages page).
 // SIMULATION ONLY: nothing here can place an order anywhere; agents.mode is locked to 'paper' by a CHECK constraint.
 // Auth: header x-dashboard-token; its SHA-256 hash must equal the Vault secret dashboard_token_sha256. verify_jwt is off.
-// Writes are limited to: agent status, kill switch, a few settings and 'control' notifications in schema agent_core.
+// Writes are limited to: agent status, kill switch, a few settings, 'control' notifications and the user's OWN paper trades
+// ("Selbst handeln": actions manual_quote, manual_open, manual_close on the account with config.engine = 'manual') in schema agent_core.
+// Own trades are paper positions at live public prices (Bybit spot ticker, Yahoo chart) with the same costs as the agents.
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
+import { COSTS, type Market, MARKETS, marketOf, MIN_USD, parseYahooChart, plan, type Quote, quoteFrom, roundTripPct, settleClose, type Side } from "./manual.ts";
 
 const ALLOWED_ORIGINS = new Set(["https://derus13.github.io", "https://russki741.github.io"]);
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -71,7 +74,7 @@ async function overview(sql: any, lite = false) {
            usdrub_rate::float8 as usdrub_rate, usdrub_rate_at, usdrub_source
     from agent_core.settings where id`;
   const since = settings.stats_since;
-  const [agents, open, closed, marks, dataStatus, signals, equity, lessons, news, newsSources, notifications, replication, stats, sparkRows, dailyRows] = await Promise.all([
+  const [agents, open, closed, marks, quotes, dataStatus, signals, equity, lessons, news, newsSources, notifications, replication, stats, sparkRows, dailyRows] = await Promise.all([
     sql`select id, name, parent_id, generation, status, halted_reason, capital_start::float8 as capital_start, cash::float8 as cash, started_at, created_at,
                state, config from agent_core.agents where coalesce((config->'strategy'->>'retired')::boolean, false) = false order by created_at`,
     sql`select id::int as id, agent_id, market, symbol, side, qty::float8 as qty, entry_price::float8 as entry_price, entry_time, entry_fee::float8 as entry_fee,
@@ -81,6 +84,7 @@ async function overview(sql: any, lite = false) {
                close_reason, pnl_usd::float8 as pnl_usd, r_multiple::float8 as r, quality::float8 as quality, setup_key
         from agent_core.positions where status = 'closed' and entry_time >= ${since} order by exit_time desc limit 60`,
     sql`select distinct on (symbol) symbol, c::float8 as price, extract(epoch from open_time) * 1000 as t from agent_core.candles order by symbol, open_time desc`,
+    sql`select symbol, last::float8 as price, extract(epoch from quote_time) * 1000 as t from agent_core.quotes`,
     sql`select symbol, market, source, ok, last_attempt_at, last_ok_at, last_candle_open, lag_seconds::float8 as lag_seconds, has_volume, error, assessment from agent_core.data_status order by market, symbol`,
     sql`select s.agent_id, s.ts, s.market, s.symbol, s.candle_time, s.side, s.quality::float8 as quality, s.decision, s.reason
         from agent_core.signals s where s.ts >= ${since} order by s.ts desc limit 40`,
@@ -109,7 +113,13 @@ async function overview(sql: any, lite = false) {
   ]);
   const spark: Record<string, number[]> = {};
   for (const r of sparkRows) spark[r.symbol] = (r.closes as number[]).slice(-60);
-  const markOf = new Map<string, number>(marks.map((m: any) => [m.symbol, m.price]));
+  // latest price per symbol: minute candle or stored quote (currency pairs, tokens without candles), whichever is newer
+  const latest = new Map<string, { price: number; t: number }>();
+  for (const m of [...marks, ...quotes]) {
+    const t = Number(m.t);
+    if (!latest.has(m.symbol) || t > latest.get(m.symbol)!.t) latest.set(m.symbol, { price: m.price, t });
+  }
+  const markOf = new Map<string, number>([...latest].map(([k, v]) => [k, v.price]));
   const openOut = open.map((p: any) => {
     const mark = markOf.get(p.symbol) ?? p.entry_price;
     const dir = p.side === "long" ? 1 : -1;
@@ -144,7 +154,141 @@ async function overview(sql: any, lite = false) {
   return {
     server_time: new Date().toISOString(), settings, agents: agentsOut, open_positions: openOut, closed_trades: closed, closed_total: stats.reduce((n: number, r: any) => n + r.trades, 0), daily: dailyRows, data_status: dataStatus, signals,
     equity_curve: equity, lessons: lessons.filter((l: any) => activeIds.has(l.agent_id)), news, news_sources: newsSources, notifications, replication_events: replication, spark,
+    manual: { markets: MARKETS.map((m) => ({ symbol: m.symbol, name: m.name, market: m.cls, can_short: m.canShort })), min_usd: MIN_USD },
   };
+}
+
+// ---------- own trades of the user ("Selbst handeln"), paper only ----------
+
+const UA = { "user-agent": "trading-sim-agent/0.1 (paper-trading research)" };
+async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<any> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(url, { headers: { accept: "application/json", ...headers }, signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+type Live = { q: Quote; change_pct: number | null; chart: number[] | null; source: string };
+/** Live price of one market from the public sources (no keys): Bybit spot ticker, Yahoo chart for currency pairs. */
+async function liveQuote(m: Market, withChart: boolean): Promise<Live> {
+  const now = Date.now();
+  if (m.cls === "crypto") {
+    const [t, k] = await Promise.all([
+      fetchJson(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${m.symbol}`),
+      withChart ? fetchJson(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${m.symbol}&interval=60&limit=48`) : Promise.resolve(null),
+    ]);
+    const r = t?.result?.list?.[0];
+    const bid = Number(r?.bid1Price), ask = Number(r?.ask1Price), last = Number(r?.lastPrice);
+    if (t?.retCode !== 0 || !(bid > 0 && ask >= bid && last > 0)) throw new Error("kein Kurs von Bybit");
+    const chart = k?.retCode === 0 ? (k.result?.list ?? []).map((x: string[]) => Number(x[4])).filter((x: number) => x > 0).reverse() : null;
+    const pct = Number(r?.price24hPcnt);
+    return { q: quoteFrom(m, last, now, now, bid, ask), change_pct: Number.isFinite(pct) ? pct * 100 : null, chart, source: "bybit" };
+  }
+  const y = parseYahooChart(await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(m.symbol)}?interval=1h&range=5d`, UA));
+  if (!y) throw new Error("kein Kurs von Yahoo");
+  const c = y.closes;
+  const day = c.length > 24 ? c[c.length - 25] : null;
+  return { q: quoteFrom(m, y.price, y.at, now), change_pct: day ? (y.price / day - 1) * 100 : null, chart: withChart ? c.slice(-48) : null, source: "yahoo" };
+}
+async function storeQuote(sql: any, m: Market, l: Live) {
+  await sql`insert into agent_core.quotes (symbol, market, bid, ask, last, quote_time, fetched_at, source)
+            values (${m.symbol}, ${m.cls}, ${m.cls === "crypto" ? l.q.bid : null}, ${m.cls === "crypto" ? l.q.ask : null}, ${l.q.mid}, ${new Date(l.q.at).toISOString()}, now(), ${l.source})
+            on conflict (symbol) do update set market = excluded.market, bid = excluded.bid, ask = excluded.ask, last = excluded.last,
+              quote_time = excluded.quote_time, fetched_at = excluded.fetched_at, source = excluded.source`;
+}
+const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
+
+async function manual(sql: any, body: any): Promise<{ status: number; body: unknown }> {
+  const [s] = await sql`select kill_switch, markets_enabled, usdrub_rate::float8 as usdrub from agent_core.settings where id`;
+  const usdrub = Number(s?.usdrub);
+
+  if (body.action === "manual_quote") {
+    const one = body.symbol === undefined ? null : marketOf(body.symbol);
+    if (body.symbol !== undefined && !one) return { status: 400, body: { error: "unknown symbol" } };
+    const list = one ? [one] : MARKETS;
+    const rows = await Promise.all(list.map(async (m) => {
+      try {
+        const l = await liveQuote(m, !!one);
+        await storeQuote(sql, m, l).catch(() => {});
+        const c = COSTS[m.cls];
+        return { symbol: m.symbol, name: m.name, market: m.cls, can_short: m.canShort, bid: l.q.bid, ask: l.q.ask, mid: l.q.mid, at: new Date(l.q.at).toISOString(), fresh: l.q.fresh,
+          change_pct: l.change_pct, chart: l.chart, fee_bps: c.feeBps, slip_bps: c.slipBps, spread_bps: m.cls === "crypto" ? ((l.q.ask - l.q.bid) / l.q.mid) * 1e4 : m.spreadBps,
+          round_trip_pct: roundTripPct(m, l.q), min_rub: usdrub > 0 ? Math.ceil(MIN_USD[m.cls] * 1.01 * usdrub) : null, source: l.source };
+      } catch (e) {
+        return { symbol: m.symbol, name: m.name, market: m.cls, can_short: m.canShort, error: msg(e).slice(0, 120) };
+      }
+    }));
+    return { status: 200, body: { server_time: new Date().toISOString(), usdrub, kill_switch: s.kill_switch, markets_enabled: s.markets_enabled, quotes: rows } };
+  }
+
+  if (body.action === "manual_open") {
+    const m = marketOf(body.symbol);
+    const side = body.side as Side;
+    const amountRub = Number(body.amount_rub);
+    if (!m) return { status: 400, body: { error: "Unbekannter Markt." } };
+    if (side !== "long" && side !== "short") return { status: 400, body: { error: "Richtung fehlt." } };
+    if (!(Number.isFinite(amountRub) && amountRub > 0 && amountRub <= 10_000_000)) return { status: 400, body: { error: "Betrag ungültig." } };
+    let l: Live;
+    try { l = await liveQuote(m, false); } catch (e) { return { status: 503, body: { error: `Kein aktueller Kurs: ${msg(e).slice(0, 80)}` } }; }
+    await storeQuote(sql, m, l).catch(() => {}); // outside the transaction: a failure here must not touch the trade
+    return await sql.begin(async (tx: any) => {
+      const [ag] = await tx`select id, name, cash::float8 as cash from agent_core.agents
+                            where mode = 'paper' and config->>'engine' = 'manual' order by created_at limit 1 for update`;
+      if (!ag) return { status: 409, body: { error: "Es gibt noch kein eigenes Konto." } };
+      const [opp] = await tx`select id from agent_core.positions where agent_id = ${ag.id} and symbol = ${m.symbol} and status = 'open' and side <> ${side} limit 1`;
+      if (opp) return { status: 409, body: { error: `Du hast in ${m.name} schon eine Position in die andere Richtung. Schließe sie zuerst.` } };
+      const p = plan(m, side, amountRub, usdrub, l.q, ag.cash, s.kill_switch === true, s.markets_enabled?.[m.cls] === true);
+      if (!p.ok) return { status: 422, body: { error: p.error } };
+      const [pos] = await tx`
+        insert into agent_core.positions (agent_id, market, symbol, side, qty, entry_price, entry_fee, entry_notional, sl_price, tp_price, risk_usd, quality, setup_key, features, note)
+        values (${ag.id}, ${m.cls}, ${m.symbol}, ${side}, ${p.qty}, ${p.fill}, ${p.fee}, ${p.notional}, null, null, ${p.notional * 0.1}, null, ${`${m.symbol}:${side}:manual`},
+                ${tx.json({ source: "manual", amount_rub: amountRub, usdrub, bid: l.q.bid, ask: l.q.ask, mid: l.q.mid, quote_at: new Date(l.q.at).toISOString(), quote_source: l.source })},
+                'Selbst gehandelt')
+        returning id::int as id`;
+      await tx`update agent_core.agents set cash = cash - ${p.notional + p.fee} where id = ${ag.id}`;
+      const verb = side === "long" ? "gekauft" : "verkauft (short)";
+      await tx`insert into agent_core.notifications (kind, agent_id, title, body, payload)
+               values ('trade_opened', ${ag.id}, ${`${m.name} selbst ${verb}`}, ${`Einstieg ${p.fill.toPrecision(7)}, ${Math.round(p.notional * usdrub)} ₽ (${r6(p.notional)} USD), Gebühr ${r6(p.fee)} USD`},
+                       ${tx.json({ symbol: m.symbol, side, entry: p.fill, notional: p.notional, fee: p.fee, manual: true })})`;
+      return { status: 200, body: { ok: true, position_id: pos.id, symbol: m.symbol, side, entry_price: p.fill, qty: p.qty, notional_usd: p.notional, fee_usd: p.fee, amount_rub: p.notional * usdrub, usdrub } };
+    });
+  }
+
+  if (body.action === "manual_close") {
+    const id = Number(body.position_id);
+    if (!Number.isInteger(id) || id <= 0) return { status: 400, body: { error: "position_id fehlt." } };
+    const [peek] = await sql`select p.symbol from agent_core.positions p join agent_core.agents a on a.id = p.agent_id
+                             where p.id = ${id} and p.status = 'open' and a.config->>'engine' = 'manual'`;
+    if (!peek) return { status: 404, body: { error: "Diese Position ist nicht offen oder gehört nicht zu deinem Konto." } };
+    const m = marketOf(peek.symbol);
+    if (!m) return { status: 409, body: { error: "Markt nicht mehr handelbar." } };
+    let l: Live;
+    try { l = await liveQuote(m, false); } catch (e) { return { status: 503, body: { error: `Kein aktueller Kurs: ${msg(e).slice(0, 80)}` } }; }
+    await storeQuote(sql, m, l).catch(() => {});
+    if (!l.q.fresh) return { status: 422, body: { error: "Der Markt ist gerade geschlossen (Wochenende oder Feiertag). Schließen geht wieder, sobald er öffnet." } };
+    return await sql.begin(async (tx: any) => {
+      const [p] = await tx`select p.id::int as id, p.agent_id, p.side, p.qty::float8 as qty, p.entry_price::float8 as entry_price, p.entry_fee::float8 as entry_fee,
+                                  p.entry_notional::float8 as entry_notional, p.risk_usd::float8 as risk_usd
+                           from agent_core.positions p join agent_core.agents a on a.id = p.agent_id
+                           where p.id = ${id} and p.status = 'open' and a.config->>'engine' = 'manual' for update of p`;
+      if (!p) return { status: 404, body: { error: "Diese Position ist schon geschlossen." } };
+      await tx`select id from agent_core.agents where id = ${p.agent_id} for update`;
+      const r = settleClose(m, p.side, p.qty, p.entry_price, p.entry_notional, p.entry_fee, l.q);
+      await tx`update agent_core.positions set status = 'closed', exit_price = ${r.px}, exit_time = now(), exit_fee = ${r.fee}, close_reason = 'manual',
+               pnl_usd = ${r.net}, r_multiple = ${p.risk_usd > 0 ? r.net / p.risk_usd : null} where id = ${p.id}`;
+      await tx`select agent_core.fn_after_close(${p.id}::bigint)`;
+      await tx`update agent_core.agents set cash = cash + ${r.cashBack} where id = ${p.agent_id}`;
+      await tx`insert into agent_core.notifications (kind, agent_id, title, body, payload)
+               values ('trade_closed', ${p.agent_id}, ${`${m.name} selbst geschlossen`}, ${`Ergebnis ${r.net >= 0 ? "+" : "−"}${Math.abs(Math.round(r.net * usdrub))} ₽ (${r.net >= 0 ? "+" : ""}${r6(r.net)} USD) nach Kosten`},
+                       ${tx.json({ symbol: m.symbol, side: p.side, exit_price: r.px, pnl_usd: r.net, manual: true })})`;
+      return { status: 200, body: { ok: true, position_id: p.id, exit_price: r.px, fee_usd: r.fee, pnl_usd: r.net, pnl_rub: r.net * usdrub, usdrub } };
+    });
+  }
+  return { status: 400, body: { error: "unknown action" } };
 }
 
 async function control(sql: any, body: any) {
@@ -163,14 +307,15 @@ async function control(sql: any, body: any) {
                  where a.status = 'halted' and a.mode = 'paper' and (${agentId}::uuid is null or a.id = ${agentId}::uuid)`;
         await tx`update agent_core.agents set status = 'active', halted_reason = null, started_at = now()
                  where status in ('stopped', 'halted') and mode = 'paper' and coalesce((config->'strategy'->>'retired')::boolean, false) = false
-                   and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
+                   and coalesce(config->>'engine', 'minute') <> 'manual' and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
       });
       await note("Start über das Dashboard", agentId ? "Agent gestartet (Simulation)." : "Alle Agenten gestartet (Simulation), Kill-Switch aus.");
       break;
     }
     case "stop": {
       await sql.begin(async (tx: any) => {
-        await tx`update agent_core.agents set status = 'stopped' where status in ('active', 'halted') and mode = 'paper' and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
+        await tx`update agent_core.agents set status = 'stopped' where status in ('active', 'halted') and mode = 'paper'
+                 and coalesce(config->>'engine', 'minute') <> 'manual' and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
         if (!agentId) await tx`update agent_core.settings set kill_switch = true where id`;
       });
       await note("Stopp über das Dashboard", agentId ? "Agent gestoppt, offene Positionen werden im nächsten Lauf geschlossen (spätestens nach 5 Minuten)." : "Alle Agenten gestoppt, Kill-Switch an. Offene Positionen werden im nächsten Lauf geschlossen (spätestens nach 5 Minuten).");
@@ -233,6 +378,10 @@ Deno.serve(async (req) => {
     if (body.action === undefined || body.action === "overview") return json(req, await overview(sql, body.lite === true));
     if (body.action === "trades") {
       const r = await tradesPage(sql, body);
+      return json(req, r.body, r.status);
+    }
+    if (typeof body.action === "string" && body.action.startsWith("manual_")) {
+      const r = await manual(sql, body);
       return json(req, r.body, r.status);
     }
     const r = await control(sql, body);

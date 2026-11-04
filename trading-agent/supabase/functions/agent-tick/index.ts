@@ -185,7 +185,8 @@ async function tick(sql: any, body: any) {
     select id, name, status, config, state, capital_start::float8 as capital_start, cash::float8 as cash
     from agent_core.agents where mode = 'paper' order by created_at`;
   const specs = new Map<string, Spec>([["EURUSD=X", { symbol: "EURUSD=X", market: "forex", source: "yahoo_chart" }]]);
-  for (const a of agents) {
+  // minute candles only for agents of the minute engine (trend-tick loads daily bars itself; the manual account uses quotes)
+  for (const a of agents.filter((x: any) => (x.config?.engine ?? "minute") === "minute")) {
     for (const m of ["crypto", "forex"] as const) {
       for (const s of a.config?.markets?.[m] ?? []) {
         specs.set(s, { symbol: s, market: m, source: m === "crypto" ? "bybit_spot" : "yahoo_chart" });

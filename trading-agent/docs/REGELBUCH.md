@@ -1,6 +1,6 @@
 # Regelbuch und Trend-Agenten
 
-Stand 3. November 2026. Alles ist Simulation mit virtuellem Geld, keine Anlageberatung.
+Stand 4. November 2026. Alles ist Simulation mit virtuellem Geld, keine Anlageberatung.
 
 ## Warum der Wechsel
 
@@ -36,7 +36,7 @@ Auf 4-Stunden-Kerzen bestehen außerdem `turtle_20_10`, `turtle_55_20`, `sma200`
 
 - Alle 5 Minuten, ab 2 Minuten nach der vollen Stunde. Eine Entscheidung je Markt und abgeschlossener Tageskerze, also einmal am Tag kurz nach 00:00 UTC (03:00 Uhr Moskau).
 - `engine.ts` trifft dieselbe Entscheidung wie die Simulation. Ein Test vergleicht beide Kerze für Kerze für alle neun Regeln.
-- Nur Kauf (Long), kein Hebel, Spot. Verkauf, wenn die Regel aus ist. Regeln mit Trailing-Stop verkaufen auch, wenn der Schlusskurs mehr als 3 ATR unter den höchsten Schlusskurs seit dem Einstieg fällt.
+- Krypto (Beta, Gamma): nur Kauf (Long), kein Hebel, Spot. Verkauf, wenn die Regel aus ist. Währungen (Delta): beide Richtungen, siehe unten. Regeln mit Trailing-Stop verkaufen auch, wenn der Schlusskurs mehr als 3 ATR unter den höchsten Schlusskurs seit dem Einstieg fällt.
 - Größter Rückgang 10 %: Der Agent verkauft alles und hält an, bis du ihn wieder startest.
 - Krypto-Käufe werden wie bisher auf dem Bybit-Demo-Konto gespiegelt.
 
@@ -95,3 +95,24 @@ Gebühren fraßen bei den schnellen Krypto-Varianten 45 bis 75 % des Kapitals. J
 - Ein Trailing-Stop (3 × ATR) verbesserte Momentum und 200-Tage-Linie bei Krypto (kleinerer Rückgang, beide Hälften im Plus), schadete aber bei Rohstoffen. Über 100 Varianten wurden getestet; die beste ist deshalb zu optimistisch.
 - Rohstoffe: Regeln brachten weniger als Halten, dafür kleinere Rückgänge. Auf Bybit-Spot gibt es davon nur Gold als Token (XAUT, Historie seit April 2025).
 - Währungen ohne Hebel bewegen sich zu wenig, die Kosten fressen den Rest.
+
+## Agent Delta: Währungen in beide Richtungen (seit 4. November 2026)
+
+- Märkte: EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CHF, USD/CAD. Tageskerzen und Kurse von Yahoo, weil Bybit keine Währungspaare anbietet. Nur Simulation, kein Spiegeln auf Bybit.
+- Regel: Momentum-Abstimmung 30/90/180 Tage (`tsmom_vote`). Kauf (Long), wenn die Regel auf dem Kurs an ist; Verkauf (Short), wenn sie auf dem Kehrwert an ist (z. B. USD/EUR statt EUR/USD). Nie beides zugleich. Schaltet die eine Seite aus und die andere ein, wird im selben Lauf gedreht. Genau so wurde es in der Studie gerechnet: ein Test vergleicht Kerze für Kerze die Zahl der Trades mit der Studie (Paar plus Kehrwert).
+- Größe: 1/6 × 0,5 = 8,3 % des Kapitals je Paar, wie in der Studie, kein Hebel. Ein Short legt den Einsatz wie ein Kauf als Sicherheit zurück.
+- Kosten: keine Gebühr, angenommener Spread 2 bis 3 Basispunkte je nach Paar, Schlupf 1 Basispunkt je Seite. Zinsen über Nacht (Swap) sind nicht eingerechnet.
+- Ergebnis wird als Kursänderung mal Einsatz in USD gebucht, wie in der Studie. Bei Paaren mit USD vorne (USD/JPY, USD/CHF, USD/CAD) weicht das vom genauen Dollar-Ergebnis nur in zweiter Ordnung ab: bei 2 % Kursbewegung um 0,04 % des Einsatzes.
+- Wochenende: Der Devisenmarkt ist von Freitag 22:00 bis Sonntag 22:00 UTC zu. Ein Kurs älter als 20 Minuten gilt als geschlossen. Dann wartet die Entscheidung: ein Ausstieg so lange wie nötig, ein Einstieg höchstens 72 Stunden. Die Freitagsentscheidung wird also meist am Sonntagabend ausgeführt.
+- Schutzschicht wie bei Beta und Gamma, aber mit den Devisen-Nachrichten (Zinsentscheide, Inflation, Arbeitsmarkt). Halbe Größe an Tagen mit mindestens 3 wichtigen Devisen-Nachrichten. In den 7 Tagen bis 4. November gab es 59 solche Meldungen, die halbe Größe wird also oft greifen.
+- Rückgangs-Limit 10 %, Startkapital 5.000 Rubel.
+- **Erwartung ehrlich:** Im Test über fast fünf Jahre brachte diese Regel auf Währungen etwa −1 % bei 7,6 % größtem Rückgang, also ungefähr nichts. Delta läuft, weil du ihn ausdrücklich wolltest und um die Live-Daten mit dem Test zu vergleichen, nicht weil ein Gewinn zu erwarten ist.
+- Erster Lauf am 4. November 2026 um 20:47 UTC: 6 Positionen zu je 5,10 USD, Short in EUR/USD, AUD/USD und USD/CAD, Long in GBP/USD, USD/JPY und USD/CHF.
+
+## Selbst handeln: das Übungskonto des Nutzers (seit 4. November 2026)
+
+- Eigenes Konto „Ich · Selbst gehandelt“ mit 5.000 Rubel (`config.engine = 'manual'`). Kein Motor handelt es. Zusammen mit Beta, Gamma und Delta sind es 20.000 Rubel virtuelles Geld.
+- Märkte: Bitcoin, Ethereum, Solana und Gold-Token XAUT (Bybit Spot, nur Kauf, ab 6 USDT) sowie EUR/USD, GBP/USD, USD/JPY (Kauf und Verkauf, ab 1 USD).
+- Preise: Bybit-Ticker (Geld- und Briefkurs) bzw. Yahoo (Mittelkurs plus angenommener Spread). Kosten wie bei den Agenten: Krypto 0,1 % Gebühr je Seite plus 2 Basispunkte Schlupf, Währungen ohne Gebühr mit 2 bis 2,5 Basispunkten Spread und 1 Basispunkt Schlupf. Die App zeigt die Kosten für Ein- und Ausstieg vor jedem Trade.
+- Kein Zeitlimit, kein automatischer Stop: Der Nutzer schließt selbst. Krypto-Käufe werden auf dem Bybit-Demo-Konto gespiegelt.
+- Unterschied zu binären Optionen (Werbevideo): Dort ist es eine Wette mit festem Auszahlungssatz und Ablaufzeit, der Anbieter verdient an jeder Wette. Hier folgt das Ergebnis dem Kurs Prozent für Prozent.

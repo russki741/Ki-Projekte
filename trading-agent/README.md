@@ -55,7 +55,7 @@ Node 22 genügt, ohne Installation:
 
 ```bash
 cd supabase/functions
-node --experimental-strip-types --test agent-tick/strategy.test.ts news-scan/newslib.test.ts bybit-demo/bybit.test.ts strategy-lab/lab.test.ts trend-tick/engine.test.ts
+node --experimental-strip-types --test agent-tick/strategy.test.ts news-scan/newslib.test.ts bybit-demo/bybit.test.ts strategy-lab/lab.test.ts strategy-lab/study.test.ts trend-tick/engine.test.ts
 node --experimental-strip-types backtest/sim.test.mjs
 ```
 
@@ -65,7 +65,7 @@ Browser-Tests der App (Playwright mit Chromium):
 node tests/app.test.cjs
 ```
 
-Stand 4. November 2026: 51 Tests der Funktionen, der Backtest-Selbsttest und 104 Tests der App, alle bestanden.
+Stand 4. November 2026: 56 Tests der Funktionen, der Backtest-Selbsttest und 104 Tests der App, alle bestanden.
 
 ## Regeln für Änderungen
 

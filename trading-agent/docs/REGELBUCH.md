@@ -63,3 +63,35 @@ Verkäufe werden nie verschoben. Die Nachrichten-Bewertung ist eine Stichwort-He
 ## Agent Alpha
 
 Im Ruhestand seit 3. November 2026: `strategy.retired = true`, Status gestoppt. agent-tick hat seine drei offenen Positionen mit dem Grund `retired` geschlossen. Seine Märkte werden weiter gesammelt, die Marktübersicht in der App bleibt.
+
+## Großer Test: mehr Märkte, kurze und lange Varianten (4. November 2026)
+
+Funktion strategy-lab, Aktion `study` (Datei `study.ts`). Alle Kosten eingerechnet: Krypto 0,1 % Gebühr je Seite plus Schlupf und Spread, Rohstoffe und Währungen mit angenommenem Broker-Spread. Nicht eingerechnet: Finanzierungskosten für Rohstoff- und Währungspositionen über Nacht. Vergleich jeweils „Halten“ derselben Märkte zu gleichen Teilen.
+
+**Tageskerzen, Januar 2022 bis November 2026**
+
+| Märkte | Halten | Bestes Ergebnis | Momentum (Beta) | Turtle (Gamma) | Gewinnmitnahme bei +1 % |
+|---|---|---|---|---|---|
+| BTC, ETH, SOL | −8 % (Rückgang 77 %) | +242 % (200-Tage-Linie + Trailing-Stop, Rückgang 29 %) | +220 % (Rückgang 34 %) | +130 % (Rückgang 28 %) | −17 bis −38 %, obwohl 91 bis 94 % der Trades Gewinner waren |
+| 15 große Coins von 2022 | −14 % (Rückgang 66 %) | +104 % (200-Tage-Linie + Trailing-Stop) | +49 % | +86 % | −23 bis −46 % |
+| Rohstoffe (Gold, Silber, Öl, Kupfer, Gas) | +58 % (Rückgang 38 %) | +49 % (Turtle + Gewinnmitnahme 10 %, Rückgang 14 %) | +29 % | +31 % | −8 bis +1 % |
+| Währungen (6 Paare, beide Richtungen, ohne Hebel) | ±0 % | ±0 % | −1 % | −6 % | −1 bis −5 % |
+| Alles zusammen (32 Märkte) | — | +45 bis +47 % (Rückgang 16 bis 21 %) | +36 % | +47 % | nicht gerechnet |
+
+**Stundenkerzen, letzte 2 Jahre („Gewinn in ein paar Stunden“)**
+
+| Märkte | Halten | Regeln allein | Gewinnmitnahme 0,5 bis 2 % | Verkauf nach 6 Stunden | Ziel 1 % / Stop 1 % |
+|---|---|---|---|---|---|
+| 6 Coins | −49 % | −16 bis −79 % | −52 bis −99 % | −80 bis −97 % | −97 bis −99,8 % |
+| Gold, Öl, EUR/USD, USD/JPY | +14 % | −4 bis +11 % | −22 bis +6 % | −16 bis −33 % | −17 bis −38 % |
+
+Gebühren fraßen bei den schnellen Krypto-Varianten 45 bis 75 % des Kapitals. Jeder Trade verlor im Schnitt etwa so viel, wie er kostete (0,25 bis 0,3 %).
+
+**Nachrichten:** 49 wichtige Krypto-Nachrichten in zwei Wochen. Danach bewegte sich BTC in 4 Stunden etwas stärker als sonst (im Schnitt 0,64 % statt 0,51 %), die Richtung ließ sich aber nicht vorhersagen: Auf „negative“ wie „positive“ Meldungen folgte im Schnitt dasselbe (−0,5 %), Zusammenhang 0,07. Zu wenige Daten für ein sicheres Urteil. Die Nachrichten bleiben eine Schutzschicht, keine Signalquelle.
+
+**Folgerungen**
+- Kurzfristiger Handel (Stunden) verliert in jeder getesteten Form. Je öfter gehandelt wird, desto größer der Verlust.
+- Lange Regeln auf BTC, ETH und SOL waren am besten. Mehr Coins brachten weniger, nicht mehr.
+- Ein Trailing-Stop (3 × ATR) verbesserte Momentum und 200-Tage-Linie bei Krypto (kleinerer Rückgang, beide Hälften im Plus), schadete aber bei Rohstoffen. Über 100 Varianten wurden getestet; die beste ist deshalb zu optimistisch.
+- Rohstoffe: Regeln brachten weniger als Halten, dafür kleinere Rückgänge. Auf Bybit-Spot gibt es davon nur Gold als Token (XAUT, Historie seit April 2025).
+- Währungen ohne Hebel bewegen sich zu wenig, die Kosten fressen den Rest.

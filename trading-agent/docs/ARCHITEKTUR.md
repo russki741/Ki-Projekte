@@ -72,7 +72,7 @@ agent-tick sammelt weiter jede Minute die Kerzen aller Märkte und bewertet sie 
 | dashboard-api | 7 | Daten und Steuerung für die App, zählt nur ab `stats_since` | App |
 | bybit-view | 4 | Daten und Schalter für den Bereich Bybit-Demo, zählt nur ab `stats_since` | App |
 | backtest | 1 | Strategie auf gespeicherter 1-Min-Historie nachspielen | auf Abruf |
-| strategy-lab | 3 | Bekannte Strategien und das Regelbuch (Portfolio, 4h und Tag) testen | auf Abruf |
+| strategy-lab | 5 | Bekannte Strategien, Regelbuch und Mehrmarkt-Studie (Krypto, Rohstoffe, Währungen; kurze und lange Varianten) testen | auf Abruf |
 
 Alle Funktionen haben `verify_jwt = false` und prüfen selbst: die Zeitplan-Funktionen den Header `x-agent-secret`, die App-Funktionen den Header `x-dashboard-token`.
 

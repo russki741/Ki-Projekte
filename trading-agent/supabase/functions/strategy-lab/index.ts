@@ -3,12 +3,37 @@
 // Reads agent_core.hist_candles (1 min, 90 days) and agent_core.hist_bars (higher timeframes); writes agent_core.hist_bars and agent_core.lab_runs.
 // Actions (JSON body): status | load_bars {symbol, tf, from_ms, to_ms} | run {tf, symbols?, ids?, split_ms?}
 //                     | rulebook {tf: 240|1440, symbols?, from_ms?, save?}  -> portfolio test of the textbook rules (lab.ts rulebook)
+//                     | study {tf, symbols, inverse?, rules, exits, from_ms, to_ms?, period_scale?, sizing?, label?, detail?, save?}
+//                       -> the rules on many markets at once with different exits (study.ts)
+// Markets: any Bybit spot pair ending in USDT; commodities and currencies from Yahoo (list YAHOO below), research only.
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 import { type Bar, buyAndHold, catalogue, type Costs, portfolio, rulebook, simulate, stats, type Trade } from "./lab.ts";
+import { type Exit, inverse, study } from "./study.ts";
 
 const BYBIT = "https://api.bybit.com"; // public market data only, no key
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
-const SPREAD_BPS: Record<string, number> = { BTCUSDT: 0.012, ETHUSDT: 0.043, SOLUSDT: 0.99 }; // measured on the live order book
+// measured on the live Bybit order book (BTC/ETH/SOL 2026-10, the others 2026-11-04); unknown pairs: 3 bps
+const SPREAD_BPS: Record<string, number> = {
+  BTCUSDT: 0.012, ETHUSDT: 0.043, SOLUSDT: 0.99, XRPUSDT: 0.77, LINKUSDT: 0.88, BNBUSDT: 0.14, DOGEUSDT: 1.3, AVAXUSDT: 1.14,
+  LTCUSDT: 1.79, ADAUSDT: 10.2, TRXUSDT: 3.13, DOTUSDT: 1.04, BCHUSDT: 0.36, XLMUSDT: 6.02, ATOMUSDT: 6.91,
+};
+// Yahoo markets (research only; not tradable on Bybit spot): futures of commodities and currency pairs.
+// Assumed broker costs (CFD-like, no commission): spread in bps plus slippage. Overnight financing is NOT modelled.
+const YAHOO: Record<string, { name: string; spreadBps: number; slipBps: number }> = {
+  "GC=F": { name: "Gold", spreadBps: 3, slipBps: 2 }, "SI=F": { name: "Silber", spreadBps: 6, slipBps: 2 },
+  "CL=F": { name: "Rohöl WTI", spreadBps: 5, slipBps: 2 }, "HG=F": { name: "Kupfer", spreadBps: 6, slipBps: 2 },
+  "NG=F": { name: "Erdgas", spreadBps: 10, slipBps: 3 },
+  "EURUSD=X": { name: "EUR/USD", spreadBps: 2, slipBps: 1 }, "GBPUSD=X": { name: "GBP/USD", spreadBps: 2.5, slipBps: 1 },
+  "USDJPY=X": { name: "USD/JPY", spreadBps: 2, slipBps: 1 }, "AUDUSD=X": { name: "AUD/USD", spreadBps: 3, slipBps: 1 },
+  "USDCHF=X": { name: "USD/CHF", spreadBps: 3, slipBps: 1 }, "USDCAD=X": { name: "USD/CAD", spreadBps: 3, slipBps: 1 },
+};
+const isBybit = (s: string) => /^[A-Z0-9]{2,20}USDT$/.test(s);
+const baseOf = (s: string) => (s.startsWith("INV:") ? s.slice(4) : s);
+function costsFor(sym: string): Costs {
+  const s = baseOf(sym);
+  if (YAHOO[s]) return { feeBps: 0, slipBps: YAHOO[s].slipBps, spreadBps: YAHOO[s].spreadBps };
+  return { feeBps: FEE_BPS, slipBps: SLIP_BPS, spreadBps: SPREAD_BPS[s] ?? 3 };
+}
 const FEE_BPS = 10, SLIP_BPS = 2; // same as the live paper engine (spot taker 0.1 %)
 const TFS = new Set([5, 15, 60, 240, 1440]);
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -54,13 +79,42 @@ async function bybitRange(symbol: string, tf: number, fromMs: number, toMs: numb
   return out.filter((r) => r.every(Number.isFinite));
 }
 
+/** Yahoo chart API: closed bars, daily bars on the UTC calendar day, hourly bars on the full hour. Yahoo keeps 1h bars for 730 days. */
+async function yahooRange(symbol: string, tf: number, fromMs: number, toMs: number): Promise<number[][]> {
+  const interval = tf === 1440 ? "1d" : "1h";
+  const step = tf * 60000;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&period1=${Math.floor(fromMs / 1000)}&period2=${Math.floor(toMs / 1000)}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  let body: any;
+  try {
+    const res = await fetch(url, { headers: { "user-agent": "trading-sim-agent/0.1 (paper-trading research)" }, signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    body = await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+  const r = body?.chart?.result?.[0];
+  if (!r) throw new Error(`yahoo: ${body?.chart?.error?.description ?? "no result"}`);
+  const t: number[] = r.timestamp ?? [], q = r.indicators?.quote?.[0] ?? {};
+  const out = new Map<number, number[]>();
+  for (let i = 0; i < t.length; i++) {
+    const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+    if (![o, h, l, c].every((x) => typeof x === "number" && Number.isFinite(x) && x > 0)) continue;
+    const ts = Math.floor((t[i] * 1000) / step) * step;
+    if (ts >= fromMs && ts + step <= toMs) out.set(ts, [ts, o, h, l, c, q.volume?.[i] ?? 0]); // the last bar of a day/hour wins
+  }
+  return [...out.values()].sort((a, b) => a[0] - b[0]);
+}
+
 async function loadBars(sql: any, b: any) {
   const symbol = String(b.symbol), tf = Number(b.tf), fromMs = Number(b.from_ms), toMs = Number(b.to_ms);
-  if (!SYMBOLS.includes(symbol)) return json({ error: "symbol not allowed" }, 400);
-  if (!TFS.has(tf)) return json({ error: "tf must be 5, 15, 60, 240 or 1440" }, 400);
+  const yahoo = !!YAHOO[symbol];
+  if (!yahoo && !isBybit(symbol)) return json({ error: "symbol not allowed (Bybit spot ...USDT or one of the Yahoo markets)" }, 400);
+  if (!TFS.has(tf) || (yahoo && tf !== 60 && tf !== 1440)) return json({ error: "tf must be 5, 15, 60, 240 or 1440 (Yahoo: 60 or 1440)" }, 400);
   if (!(fromMs > 0) || !(toMs > fromMs)) return json({ error: "bad range" }, 400);
   if (toMs > Date.now() - 2 * tf * 60000) return json({ error: "to_ms must be at least two bars in the past" }, 400);
-  const rows = await bybitRange(symbol, tf, fromMs, toMs);
+  const rows = yahoo ? await yahooRange(symbol, tf, fromMs, toMs) : await bybitRange(symbol, tf, fromMs, toMs);
   let inserted = 0;
   for (let i = 0; i < rows.length; i += 4000) {
     const r = await sql`
@@ -79,9 +133,10 @@ async function status(sql: any) {
   return json({ hist_bars: hb, hist_candles_1m: hc });
 }
 
-async function barsOf(sql: any, symbol: string, tf: number): Promise<Bar[]> {
+async function barsOf(sql: any, symbol: string, tf: number, sinceMs = 0): Promise<Bar[]> {
   const rows = tf >= 60
-    ? await sql`select (extract(epoch from open_time) * 1000)::float8 as ts, o, h, l, c, v from agent_core.hist_bars where symbol = ${symbol} and tf = ${tf} order by open_time`
+    ? await sql`select (extract(epoch from open_time) * 1000)::float8 as ts, o, h, l, c, v from agent_core.hist_bars
+                where symbol = ${symbol} and tf = ${tf} and open_time >= to_timestamp(${sinceMs / 1000}) order by open_time`
     : await sql`
         select (extract(epoch from b) * 1000)::float8 as ts, o, h, l, c, v from (
           select date_bin(${tf}::int * interval '1 minute', open_time, timestamptz '2026-01-01') as b,
@@ -193,6 +248,49 @@ async function rulebookRun(sql: any, b: any) {
   return json(out);
 }
 
+// Multi-market study. Every combination of rule x exit is one portfolio over all given markets (equal share each, scaled down
+// by volatility with sizing "vol"). "hold" as rule is the buy-and-hold benchmark of the same markets.
+async function studyRun(sql: any, b: any) {
+  const tf = Number(b.tf);
+  if (tf !== 60 && tf !== 240 && tf !== 1440) return json({ error: "tf must be 60, 240 or 1440" }, 400);
+  const syms: string[] = Array.isArray(b.symbols) ? b.symbols.filter((s: unknown) => typeof s === "string" && (YAHOO[s] || isBybit(s))) : [];
+  const inv: string[] = Array.isArray(b.inverse) ? b.inverse.filter((s: unknown) => typeof s === "string" && syms.includes(s)) : [];
+  if (!syms.length || syms.length > 40) return json({ error: "1..40 symbols" }, 400);
+  const periodScale = Number(b.period_scale ?? 1440 / tf); // 1 = rule periods count in bars ("55 days" becomes 55 bars)
+  const rules = (Array.isArray(b.rules) ? b.rules : []).map((id: unknown) => (id === "hold" ? "hold" : rulebook(periodScale).find((r) => r.id === id))).filter(Boolean);
+  const exits: Exit[] = (Array.isArray(b.exits) ? b.exits : [{ id: "regel" }]).filter((e: any) => typeof e?.id === "string").slice(0, 12);
+  if (!rules.length || rules.length * exits.length > 60) return json({ error: "1..60 combinations of rules and exits" }, 400);
+  const fromMs = Number(b.from_ms), toMs = Number(b.to_ms) || Infinity;
+  if (!(fromMs > 0)) return json({ error: "from_ms required" }, 400);
+  const data: Record<string, Bar[]> = {};
+  const missing: string[] = [];
+  // only the bars the rules need: the period plus a warm-up of 260 rule days (200-day rules, ATR, volatility)
+  const sinceMs = fromMs - Math.ceil(260 * periodScale) * tf * 60000;
+  for (const s of syms) {
+    const bars = await barsOf(sql, s, tf, sinceMs);
+    if (bars.length < 50) { missing.push(s); continue; }
+    data[s] = bars;
+    if (inv.includes(s)) data[`INV:${s}`] = inverse(bars);
+  }
+  const cfg = { sizing: b.sizing === "vol" ? "vol" as const : "equal" as const, refVol: 0.6, volDays: 30, periodScale, capital: 10000 };
+  const t0 = performance.now();
+  const results: any[] = [];
+  for (const r of rules) {
+    for (const e of exits) {
+      const res = study(data, r as any, e, cfg, costsFor, fromMs, toMs);
+      results.push({ rule: r === "hold" ? "hold" : (r as any).id, exit: e.id, metrics: res.metrics, years: res.years, halves: res.halves, exits: res.exits, ...(b.detail ? { by_symbol: res.bySymbol } : {}) });
+    }
+  }
+  const out = {
+    kind: "study_v1", label: typeof b.label === "string" ? b.label.slice(0, 80) : null, tf, period_scale: periodScale, sizing: cfg.sizing,
+    from: new Date(fromMs).toISOString(), to: Number.isFinite(toMs) ? new Date(toMs).toISOString() : null,
+    markets: Object.fromEntries(Object.entries(data).map(([s, x]) => [s, { n: x.length, first: new Date(x[0].ts).toISOString(), last: new Date(x[x.length - 1].ts).toISOString(), costs: costsFor(s) }])),
+    missing, exits_def: exits, sim_ms: Math.round(performance.now() - t0), results,
+  };
+  if (b.save !== false) await sql`insert into agent_core.lab_runs (tf, split_at, note, result) values (${tf}, null, ${`study_v1: ${out.label ?? ""}`.slice(0, 200)}, ${sql.json(out)})`;
+  return json(out);
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   const provided = req.headers.get("x-agent-secret");
@@ -206,6 +304,7 @@ Deno.serve(async (req) => {
     if (body?.action === "load_bars") return await loadBars(sql, body);
     if (body?.action === "run") return await run(sql, body);
     if (body?.action === "rulebook") return await rulebookRun(sql, body);
+    if (body?.action === "study") return await studyRun(sql, body);
     return json({ error: "unknown action" }, 400);
   } catch (e) {
     console.error("strategy-lab failed", e);

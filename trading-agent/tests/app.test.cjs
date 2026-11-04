@@ -270,17 +270,22 @@ function serve() {
   check("redirect: bybit.html opens the bybit area of the app", !(await r.page.locator('.view[data-view="bybit"]').isHidden()));
   await r.ctx.close();
 
-  // trend agents: Alpha retired, Beta and Gamma trade daily rules, positions without fixed stop/target
+  // restart: two trend agents with 5,000 rubles each, statistics from the restart, positions without fixed stop/target
   r = await run("trend", fx.trend, { width: 390, height: 800 }, "light");
   const cards = r.page.locator("#agents article.agent");
-  check("trend: three agent cards", (await cards.count()) === 3);
-  const alphaCard = await cards.nth(0).textContent();
-  check("trend: Alpha shows retired chip and text", /Im Ruhestand/.test(alphaCard) && /keine neuen Trades/.test(alphaCard), alphaCard.slice(0, 200));
-  check("trend: no start/stop buttons and no replication bar for the retired agent", (await cards.nth(0).locator("[data-agent-start],[data-agent-stop],.goal").count()) === 0);
-  const betaCard = await cards.nth(1).textContent();
-  check("trend: Beta shows its rule, daily decision and share", /Momentum-Abstimmung 30\/90\/180 Tage/.test(betaCard) && /einmal am Tag/.test(betaCard) && /8,3 % des Kapitals/.test(betaCard) && /Rückgangs-Limit 10 %/.test(betaCard), betaCard.slice(0, 400));
-  check("trend: no undefined in agent texts", !/undefined|NaN/.test(await r.page.textContent("#agents")));
-  check("trend: active trend agent has a stop button", (await cards.nth(1).locator("[data-agent-stop]").count()) === 1);
+  check("trend: two agent cards, archived Alpha not shown", (await cards.count()) === 2 && !/Agent Alpha/.test(await r.page.textContent("#agents")));
+  const betaCard = await cards.nth(0).textContent();
+  check("trend: Beta shows its rule, daily decision, minimum order", /Momentum-Abstimmung 30\/90\/180 Tage/.test(betaCard) && /einmal am Tag/.test(betaCard) && /mindestens 6 USDT/.test(betaCard) && /Rückgangs-Limit 10 %/.test(betaCard), betaCard.slice(0, 500));
+  check("trend: Beta capital in rubles with start", /5\.00\d,\d\d ₽/.test(betaCard) && /Start 5\.000,00 ₽/.test(betaCard), betaCard.slice(0, 300));
+  check("trend: ledger shows total capital in rubles", /₽/.test(await r.page.textContent("#ledger dd")) && /Start 10\.000,00 ₽/.test(await r.page.textContent("#ledger")));
+  check("trend: capital lead names the restart", /Neustart am/.test(await r.page.textContent("#capital-lead")));
+  check("trend: capital table has a ruble row", /Kapital jetzt in Rubel/.test(await r.page.textContent("#capital")) && /Zentralbank Russland/.test(await r.page.textContent("#capital")));
+  check("trend: no undefined in agent texts", !/undefined|NaN/.test(await r.page.textContent("#agents")) && !/undefined|NaN/.test(await r.page.textContent("#ledger")));
+  check("trend: active trend agent has a stop button", (await cards.nth(0).locator("[data-agent-stop]").count()) === 1);
+  // the app still knows how to show a retired agent, should the API ever return one
+  await r.page.evaluate(() => { const a = JSON.parse(JSON.stringify(state.data.agents[1])); a.id = "44444444-4444-4444-8444-444444444444"; a.name = "Agent Alt"; a.status = "stopped"; a.config.strategy.retired = true; state.data.agents.push(a); renderAgents(state.data, derive(state.data)); });
+  const oldCard = await r.page.locator("#agents article.agent").nth(2).textContent();
+  check("trend: retired agent card without start button", /Im Ruhestand/.test(oldCard) && (await r.page.locator("#agents article.agent").nth(2).locator("[data-agent-start],[data-agent-stop],.goal").count()) === 0);
   await go(r.page, "trades");
   const posText = await r.page.textContent("#positions");
   check("trend: position without stop shows 'per Regel'", /per Regel/.test(posText) && /offen/.test(posText) && !/undefined|NaN/.test(posText), posText.slice(0, 300));

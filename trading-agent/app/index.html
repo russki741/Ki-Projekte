@@ -137,6 +137,7 @@ td.num,th.num{text-align:right;white-space:nowrap}
 .agent-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
 .agent-stats dt{color:var(--ink-3);font-size:.85rem}
 .agent-stats dd{margin:0;font-weight:700;font-size:1.1rem}
+.agent-stats dd small{display:block;font-size:.8rem;font-weight:500;color:var(--ink-3)}
 .goal{margin:6px 0 2px}
 .goal .q-bar{height:10px}
 .cfg{color:var(--ink-2);font-size:.9rem}
@@ -388,12 +389,13 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
       <summary>Was du wissen solltest</summary>
       <ul>
         <li>Die Agenten handeln mit virtuellem Geld. Krypto-Trades werden zusätzlich auf einem Bybit-Demo-Konto mit Spielgeld ausgeführt. Es gibt keine echten Orders und keinen Weg, von hier aus echtes Geld zu bewegen.</li>
-        <li>Die Strategie ist eine einfache, regelbasierte Heuristik (Trend auf 15 Minuten, Einstieg auf 1 Minute). Sie ist nicht bewiesen profitabel. Kurzfristiger Handel verliert oft durch Gebühren.</li>
+        <li>Die Agenten handeln nach bekannten Trendregeln auf Tageskerzen (Momentum-Abstimmung, Turtle 55/20). Sie waren im Rückblick besser als Halten, das ist aber kein Beweis für die Zukunft.</li>
+        <li>Jeder Agent startet mit 5.000 Rubel, umgerechnet in USDT zum Kurs der Zentralbank Russland. Gehandelt wird in USDT, deshalb ändert sich der Wert in Rubel auch mit dem Wechselkurs. Bybit nimmt Orders erst ab 5 USDT an, deshalb kauft jeder Agent je Markt mindestens 6 USDT.</li>
         <li>Die „KI“ besteht aus Regeln und einem Lernspeicher. Sie versteht keine Texte und sagt keine Kurse voraus.</li>
-        <li>500 Euro an einem Tag sind bei 10.000 US-Dollar Startkapital rund 5 Prozent in 24 Stunden. Mit 1 Prozent Risiko pro Trade und Positionsgrenze ist das sehr unwahrscheinlich. Erst dann entsteht ein zweiter Agent, und nur als Simulation.</li>
+        <li>Ein neuer Agent entsteht erst bei 500 Euro Tagesgewinn. Mit 5.000 Rubel Startkapital ist das praktisch ausgeschlossen.</li>
         <li>EUR/USD wird nur in der Simulation mit Yahoo-Daten gehandelt, weil Bybit dieses Paar nicht anbietet. Am Wochenende ist der Devisenmarkt geschlossen, die Daten gelten dann als veraltet.</li>
         <li>Aktien und Edelmetalle sind noch nicht eingebaut, weil bisher keine getestete kostenlose Minutenquelle zur Verfügung steht.</li>
-        <li>Gebühren sind zweimal 0,1 Prozent je Trade (Kauf und Verkauf). Bei den engen Stop-Abständen kosten sie rund ein halbes R. Ein Stop-Loss verliert deshalb etwa 1,5 R statt 1 R.</li>
+        <li>Gebühren sind zweimal 0,1 Prozent je Trade (Kauf und Verkauf). Bei Tagesregeln mit wenigen, länger laufenden Trades fallen sie kaum ins Gewicht.</li>
         <li>Das ist keine Anlageberatung.</li>
       </ul>
     </details>
@@ -537,7 +539,14 @@ function derive(D) {
     trades: s.trades + (a.stats.trades || 0), wins: s.wins + (a.stats.wins || 0), open: s.open + a.open_positions, dd: Math.max(s.dd, a.drawdown_pct || 0),
   }), { equity: 0, start: 0, today: 0, pnl: 0, trades: 0, wins: 0, open: 0, dd: 0 });
   const latestAttempt = Math.max(0, ...D.data_status.map((r) => Date.parse(r.last_attempt_at) || 0));
-  return { eur, agentName, tot, latestAttempt };
+  // second currency next to USD: rubles (Bank of Russia rate, at most 3 days old), otherwise euro. Display only.
+  const rub = Number.isFinite(D.settings.usdrub_rate) && D.settings.usdrub_rate_at && nowMs() - Date.parse(D.settings.usdrub_rate_at) < 3 * 86400000 ? D.settings.usdrub_rate : null;
+  const alt = rub ? { code: "RUB", sign: "₽", label: "Rubel", of: (v) => v * rub, rateTxt: `Kurs ${num(rub, 4)} Rubel je US-Dollar (Zentralbank Russland)` }
+    : eur ? { code: "EUR", sign: "€", label: "Euro", of: (v) => v / eur, rateTxt: `Kurs ${num(eur, 4)} US-Dollar je Euro` } : null;
+  const altTxt = (v, sg = true) => (alt && Number.isFinite(v) ? `${sg ? signed(alt.of(v)) : num(alt.of(v))} ${alt.sign}` : "");
+  // start capital in rubles, when the agents were started in rubles (config.display.capital_rub)
+  const startRub = D.agents.filter((a) => a.status !== "pending_approval").reduce((s, a) => (Number.isFinite(a.config?.display?.capital_rub) && s !== null ? s + a.config.display.capital_rub : null), 0);
+  return { eur, rub, alt, altTxt, startRub, agentName, tot, latestAttempt };
 }
 
 /* ---------- render: hero ---------- */
@@ -547,7 +556,7 @@ function renderHero(D, X) {
   const pending = D.agents.filter((a) => a.status === "pending_approval");
   let word, sub, on = false;
   if (s.kill_switch) { word = "Pausiert"; sub = "Der Kill-Switch ist an. Es werden nur Marktdaten gesammelt und bewertet, es werden keine Trades eröffnet."; }
-  else if (active.length) { word = "Läuft"; on = true; sub = `${active.length} ${active.length === 1 ? "Agent ist" : "Agenten sind"} aktiv und handeln mit virtuellem Geld im 60-Sekunden-Takt.`; }
+  else if (active.length) { word = "Läuft"; on = true; sub = `${active.length} ${active.length === 1 ? "Agent ist" : "Agenten sind"} aktiv und handeln mit virtuellem Geld. Sie entscheiden einmal am Tag nach Tagesschluss (03:00 Uhr Moskau).`; }
   else { word = "Bereit"; sub = "Kein Agent ist aktiv. Mit Start beginnt die Simulation."; }
   if (pending.length) sub += ` ${pending.length} neuer Agent wartet auf deine Freigabe.`;
   const running = !s.kill_switch && active.length > 0;
@@ -570,7 +579,7 @@ function renderHero(D, X) {
     </div>
     <div class="strip-wrap">
       <div class="strip" id="strip" aria-hidden="true">${"<i></i>".repeat(60)}</div>
-      <div class="strip-meta"><span id="strip-l"></span><span>Abruf der Kerzen, Bewertung und Handel alle 60 Sekunden</span></div>
+      <div class="strip-meta"><span id="strip-l"></span><span>Marktdaten jede Minute, Handelsentscheidung einmal am Tag</span></div>
     </div>${banner}`;
   tickStrip();
 }
@@ -589,9 +598,12 @@ function tickStrip() {
 /* ---------- render: ledger ---------- */
 function renderLedger(D, X) {
   const t = X.tot;
-  const conv = (v) => (X.eur ? `${signed(v / X.eur)} EUR` : "Euro-Kurs nicht aktuell");
+  const conv = (v) => X.altTxt(v) || "Wechselkurs nicht aktuell";
+  const rubMain = X.alt?.code === "RUB" && X.startRub;
   const items = [
-    ["Kapital gesamt", usd(t.equity), `Start ${usd(t.start)}, seitdem ${signed(t.equity - t.start)} USD`, ""],
+    rubMain
+      ? ["Kapital gesamt", X.altTxt(t.equity, false), `${usd(t.equity)}. Start ${num(X.startRub)} ₽ (${usd(t.start)}), seitdem ${signed(t.equity - t.start)} USD`, ""]
+      : ["Kapital gesamt", usd(t.equity), `Start ${usd(t.start)}, seitdem ${signed(t.equity - t.start)} USD`, ""],
     ["Gewinn heute (UTC-Tag)", usd(t.today, true), conv(t.today), clsPnl(t.today)],
     ["Gewinn gesamt", usd(t.pnl, true), conv(t.pnl), clsPnl(t.pnl)],
     ["Trefferquote", t.trades ? pc((t.wins / t.trades) * 100, 0) : "–", `${t.trades} abgeschlossene Trades`, ""],
@@ -720,7 +732,8 @@ function agentCfgText(cfg, mk, retired) {
     const n = Math.max(1, (cfg.markets?.crypto || []).length);
     const share = (100 / n) * (Number.isFinite(s.scale) ? s.scale : 1);
     const when = Number(s.tf) === 1440 ? "einmal am Tag nach Tagesschluss (00:00 UTC, 03:00 Uhr Moskau)" : `nach jeder ${num(Number(s.tf) / 60, 0)}-Stunden-Kerze`;
-    return `Regel: ${esc(s.label || s.rule)}. Entscheidung ${esc(when)}. Märkte: ${esc(mk || "–")}, nur Kauf, kein Hebel. Größe je Markt höchstens ${esc(num(share, 1))} % des Kapitals${s.sizing === "vol" ? ", bei starker Schwankung weniger" : ""}. Rückgangs-Limit ${esc(cfg.risk?.max_drawdown_pct ?? 10)} %. Schutz: keine neuen Käufe 30 Minuten nach wichtigen Nachrichten und rund um Zinsentscheide und US-Arbeitsmarktdaten, halbe Größe an Tagen mit vielen wichtigen Krypto-Nachrichten.`;
+    const minOrder = Number(cfg.risk?.min_order_usd) > 0 ? Number(cfg.risk.min_order_usd) : null;
+    return `Regel: ${esc(s.label || s.rule)}. Entscheidung ${esc(when)}. Märkte: ${esc(mk || "–")}, nur Kauf, kein Hebel. Größe je Markt ${esc(num(share, 1))} % des Kapitals${s.sizing === "vol" ? ", bei starker Schwankung weniger" : ""}${minOrder ? `, aber mindestens ${esc(num(minOrder, 0))} USDT, weil Bybit Orders erst ab 5 USDT annimmt` : ""}. Rückgangs-Limit ${esc(cfg.risk?.max_drawdown_pct ?? 10)} %. Schutz: keine neuen Käufe 30 Minuten nach wichtigen Nachrichten und rund um Zinsentscheide und US-Arbeitsmarktdaten, halbe Größe an Tagen mit vielen wichtigen Krypto-Nachrichten${minOrder ? " (nie unter die Mindestgröße)" : ""}.`;
   }
   return `Märkte: ${esc(mk || "–")}. Risiko ${esc(cfg.risk?.risk_per_trade_pct ?? "–")} % je Trade, höchstens ${esc(cfg.risk?.max_positions ?? "–")} Positionen, Tagesverlust-Limit ${esc(cfg.risk?.daily_loss_pct ?? "–")} %, Mindestqualität ${esc(s.min_quality ?? "–")}, Short ${cfg.allow_short?.crypto || cfg.allow_short?.forex ? "teilweise erlaubt" : "aus"}.`;
 }
@@ -737,6 +750,7 @@ function renderAgents(D, X) {
     const cfg = a.config || {};
     const mk = [...(cfg.markets?.crypto || []), ...(cfg.markets?.forex || [])].map(SYM).join(", ");
     const parent = a.parent_id ? X.agentName.get(a.parent_id) || "unbekannt" : null;
+    const rubAgent = cfg.display?.currency === "RUB" && X.alt?.code === "RUB";
     const canStart = !retired && (a.status === "stopped" || a.status === "halted");
     const canStop = !retired && (a.status === "active" || a.status === "halted");
     return `<article class="agent">
@@ -750,9 +764,11 @@ function renderAgents(D, X) {
         </div>
       </div>
       <dl class="agent-stats">
-        <div><dt>Kapital</dt><dd>${esc(usd(a.equity))}</dd></div>
-        <div><dt>Gewinn heute</dt><dd class="${clsPnl(today)}">${esc(usd(today, true))}</dd></div>
-        <div><dt>Gewinn gesamt</dt><dd class="${clsPnl(a.stats.pnl)}">${esc(usd(a.stats.pnl || 0, true))}</dd></div>
+        ${rubAgent
+          ? `<div><dt>Kapital</dt><dd>${esc(X.altTxt(a.equity, false))}<small>${esc(usd(a.equity))}, Start ${esc(num(cfg.display.capital_rub))} ₽</small></dd></div>`
+          : `<div><dt>Kapital</dt><dd>${esc(usd(a.equity))}</dd></div>`}
+        <div><dt>Gewinn heute</dt><dd class="${clsPnl(today)}">${esc(usd(today, true))}${rubAgent ? `<small>${esc(X.altTxt(today))}</small>` : ""}</dd></div>
+        <div><dt>Gewinn gesamt</dt><dd class="${clsPnl(a.stats.pnl)}">${esc(usd(a.stats.pnl || 0, true))}${rubAgent ? `<small>${esc(X.altTxt(a.stats.pnl || 0))}</small>` : ""}</dd></div>
         <div><dt>Rückgang vom Höchststand</dt><dd>${esc(pc(a.drawdown_pct, 2))}</dd></div>
         <div><dt>Trades, Treffer</dt><dd>${esc(a.stats.trades)}, ${a.stats.win_rate === null ? "–" : esc(pc(a.stats.win_rate * 100, 0))}</dd></div>
         <div><dt>Gewinnfaktor</dt><dd>${a.stats.profit_factor === null ? "–" : esc(num(a.stats.profit_factor, 2))}</dd></div>
@@ -823,10 +839,15 @@ function renderPositions(D, X) {
     <td class="num ${clsPnl(p.unrealized_usd)}">${esc(usd(p.unrealized_usd, true))}</td><td>${esc(T(p.entry_time))}</td></tr>`).join("")}</tbody></table></div>`;
 }
 /* ---------- render: capital statement ---------- */
+/** Statistics restart: everything opened before settings.stats_since is archive. */
+function seasonNote(D) {
+  const t = Date.parse(D.settings?.stats_since || "");
+  return Number.isFinite(t) && t > Date.UTC(2021, 0, 1) ? ` Gezählt wird seit dem Neustart am ${T(D.settings.stats_since)}, ältere Trades sind archiviert.` : "";
+}
 function capCols(D) { return D.agents.filter((a) => a.status !== "pending_approval" && a.capital); }
 function renderCapital(D, X) {
   const cols = capCols(D);
-  $("#capital-lead").textContent = "Schritt für Schritt: aus dem Startkapital wird das Kapital von jetzt. Gebühren, Spread und Slippage sind schon abgezogen. Die Werte sind virtuell.";
+  $("#capital-lead").textContent = "Schritt für Schritt: aus dem Startkapital wird das Kapital von jetzt. Gebühren, Spread und Slippage sind schon abgezogen. Die Werte sind virtuell." + seasonNote(D);
   if (!cols.length) { $("#capital").innerHTML = `<div class="empty">Noch kein Agent mit Konto.</div>`; return; }
   const multi = cols.length > 1;
   const sum = (f) => cols.reduce((s, a) => s + f(a.capital), 0);
@@ -841,9 +862,9 @@ function renderCapital(D, X) {
     { k: "Veränderung seit dem Start", f: (c) => c.equity - c.start, cls: "sub", sg: true, pct: true },
     { k: "Gebühren bisher insgesamt bezahlt", h: "stecken schon in den Zeilen oben", f: (c) => c.fees_closed + c.open_fees, cls: "sub" },
   ];
-  if (X.eur) rows.splice(5, 0, { k: "Kapital jetzt in Euro", h: `Kurs ${num(X.eur, 4)} USD je Euro`, f: (c) => c.equity / X.eur, cls: "sub", eur: true });
+  if (X.alt) rows.splice(5, 0, { k: `Kapital jetzt in ${X.alt.label}`, h: X.alt.rateTxt, f: (c) => X.alt.of(c.equity), cls: "sub", eur: true });
   const fmt = (r, v, c) => {
-    if (r.eur) return `${num(v)} EUR`;
+    if (r.eur) return `${num(v)} ${X.alt ? X.alt.sign : ""}`;
     let out = usd(v, !!r.sg);
     if (r.pct && c && c.start) out += ` (${signed((v / c.start) * 100)} %)`;
     return out;
@@ -922,12 +943,12 @@ function csvEscape(v) { return `"${String(v ?? "").replace(/"/g, '""')}"`; }
 const csvNum = (x, d) => (Number.isFinite(x) ? x.toFixed(d).replace(".", ",") : "");
 function exportCsv() {
   const D = state.data, X = derive(D), rows = state.tr.rows;
-  const head = ["Nr", "Eroeffnet (UTC)", "Geschlossen (UTC)", "Agent", "Symbol", "Richtung", "Menge", "Einstiegspreis", "Ausstiegspreis", "Gebuehren USD", "Grund", "Ergebnis USD", "Ergebnis EUR", "R", "Kapital danach USD"];
+  const head = ["Nr", "Eroeffnet (UTC)", "Geschlossen (UTC)", "Agent", "Symbol", "Richtung", "Menge", "Einstiegspreis", "Ausstiegspreis", "Gebuehren USD", "Grund", "Ergebnis USD", `Ergebnis ${X.alt ? X.alt.code : "EUR"}`, "R", "Kapital danach USD"];
   const lines = [head.map(csvEscape).join(";")];
   for (const t of rows) {
     const fee = Number.isFinite(t.entry_fee) && Number.isFinite(t.exit_fee) ? t.entry_fee + t.exit_fee : NaN;
     lines.push([t.id, t.entry_time, t.exit_time, X.agentName.get(t.agent_id) || "", SYM(t.symbol), t.side === "long" ? "Long" : "Short", csvNum(t.qty, 8), csvNum(t.entry_price, 6), csvNum(t.exit_price, 6), csvNum(fee, 4),
-      CLOSE[t.close_reason] || t.close_reason || "", csvNum(t.pnl_usd, 4), X.eur ? csvNum(t.pnl_usd / X.eur, 4) : "", csvNum(t.r, 3), csvNum(t.capital_after, 2)].map(csvEscape).join(";"));
+      CLOSE[t.close_reason] || t.close_reason || "", csvNum(t.pnl_usd, 4), X.alt ? csvNum(X.alt.of(t.pnl_usd), 4) : "", csvNum(t.r, 3), csvNum(t.capital_after, 2)].map(csvEscape).join(";"));
   }
   const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
@@ -950,10 +971,10 @@ function renderDaily(D, X) {
     ${tdl("Gewinne, Verluste", "num", `${esc(d.wins)}, ${esc(d.losses)}`)}
     ${tdl("Gebühren", "num opt", esc(usd(d.fees)))}
     ${tdl("Ergebnis", `num ${clsPnl(d.pnl)}`, `<b>${esc(usd(d.pnl, true))}</b>`)}
-    ${tdl("Ergebnis in Euro", `num ${clsPnl(d.pnl)}`, esc(X.eur ? signed(d.pnl / X.eur) + " EUR" : "–"))}
+    ${tdl(`Ergebnis in ${X.alt ? X.alt.label : "Euro"}`, `num ${clsPnl(d.pnl)}`, esc(X.altTxt(d.pnl) || "–"))}
     ${tdl("Kapital am Tagesende", "num", esc(usd(start + d.cum_pnl)))}</tr>`).join("");
   return `<h3 class="sub">Ergebnis pro Tag</h3>
-    <div class="scroll"><table class="rt" id="daily-table"><thead><tr><th>Tag (UTC)</th><th class="num">Trades</th><th class="num">Gewinne, Verluste</th><th class="num">Gebühren</th><th class="num">Ergebnis</th><th class="num">Ergebnis in Euro</th><th class="num">Kapital am Tagesende</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="scroll"><table class="rt" id="daily-table"><thead><tr><th>Tag (UTC)</th><th class="num">Trades</th><th class="num">Gewinne, Verluste</th><th class="num">Gebühren</th><th class="num">Ergebnis</th><th class="num">Ergebnis in ${esc(X.alt ? X.alt.label : "Euro")}</th><th class="num">Kapital am Tagesende</th></tr></thead><tbody>${body}</tbody></table></div>
     <p class="small muted" style="margin-top:6px">Ein Tag läuft von 00:00 bis 24:00 Uhr UTC. Bei dir wechselt er um ${esc(hint)} Uhr. Die Tabelle zählt nur abgeschlossene Trades. Offene Positionen stehen im Kapital-Block oben mit ihrem aktuellen Wert.</p>`;
 }
 function renderPnl() {
@@ -961,7 +982,7 @@ function renderPnl() {
   const X = derive(D), T0 = state.tr, cols = capCols(D);
   const total = D.closed_total || 0;
   const st = cols.reduce((s, a) => ({ win: s.win + (a.stats.gross_win || 0), loss: s.loss + (a.stats.gross_loss || 0), wins: s.wins + (a.stats.wins || 0), fees: s.fees + a.capital.fees_closed, pnl: s.pnl + (a.stats.pnl || 0) }), { win: 0, loss: 0, wins: 0, fees: 0, pnl: 0 });
-  const conv = (v) => (X.eur ? `${signed(v / X.eur)} EUR` : "");
+  const conv = (v) => X.altTxt(v);
   const summary = `<dl class="sumline">
     <div><dt>Abgeschlossene Trades</dt><dd>${esc(total)}</dd></div>
     <div><dt>Summe der Gewinne</dt><dd class="gain">${esc(usd(st.win, true))}<small>${esc(st.wins)} Trades</small></dd></div>
@@ -983,7 +1004,7 @@ function renderPnl() {
   const seg = [["all", `Alle (${T0.rows.length})`], ["win", `Nur Gewinne (${wins.length})`], ["loss", `Nur Verluste (${losses.length})`]]
     .map(([k, l]) => `<button class="tab" type="button" data-filter="${k}" aria-pressed="${f === k}" aria-selected="${f === k}">${esc(l)}</button>`).join("");
   const fee = (t) => (Number.isFinite(t.entry_fee) && Number.isFinite(t.exit_fee) ? t.entry_fee + t.exit_fee : NaN);
-  const eurTxt = (v) => (X.eur ? signed(v / X.eur) + " EUR" : "");
+  const eurTxt = (v) => X.altTxt(v);
   const rowsHtml = shown.map((t) => `<tr>
     ${tdl("Nr.", "num opt", esc("#" + t.id))}
     ${tdl("Geschlossen", "nw", esc(T(t.exit_time)))}

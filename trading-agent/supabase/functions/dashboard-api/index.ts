@@ -34,6 +34,8 @@ async function sha256hex(s: string) {
 
 const isUuid = (x: unknown): x is string => typeof x === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x);
 
+// Statistics period: trades OPENED before settings.stats_since are archive (kept in the tables, not counted here).
+// Retired agents (config.strategy.retired) are archive too and are left out of the overview.
 // Closed trades with per-agent running totals. The window runs over ALL closed trades, so cum_pnl / capital_after stay correct even for a partial page.
 // capital_after = capital_start + realized net result so far (open positions are not part of it).
 async function closedPage(sql: any, limit: number, offset: number, agentId: string | null) {
@@ -45,9 +47,10 @@ async function closedPage(sql: any, limit: number, offset: number, agentId: stri
              (sum(p.pnl_usd) over (partition by p.agent_id order by p.exit_time, p.id))::float8 as cum_pnl,
              (a.capital_start + sum(p.pnl_usd) over (partition by p.agent_id order by p.exit_time, p.id))::float8 as capital_after
       from agent_core.positions p join agent_core.agents a on a.id = p.agent_id
-      where p.status = 'closed')
+      where p.status = 'closed' and p.entry_time >= (select stats_since from agent_core.settings where id))
     select * from t where (${agentId}::uuid is null or agent_id = ${agentId}::uuid) order by exit_time desc, id desc limit ${limit} offset ${offset}`;
-  const [{ n }] = await sql`select count(*)::int as n from agent_core.positions where status = 'closed' and (${agentId}::uuid is null or agent_id = ${agentId}::uuid)`;
+  const [{ n }] = await sql`select count(*)::int as n from agent_core.positions where status = 'closed' and entry_time >= (select stats_since from agent_core.settings where id)
+                            and (${agentId}::uuid is null or agent_id = ${agentId}::uuid)`;
   return { trades: rows, total: n };
 }
 
@@ -64,22 +67,24 @@ async function tradesPage(sql: any, body: any) {
 async function overview(sql: any, lite = false) {
   const [settings] = await sql`
     select kill_switch, paper_only, markets_enabled, max_agents, replication_threshold_eur::float8 as replication_threshold_eur,
-           replication_requires_approval, eurusd_rate::float8 as eurusd_rate, eurusd_rate_at
+           replication_requires_approval, eurusd_rate::float8 as eurusd_rate, eurusd_rate_at, stats_since,
+           usdrub_rate::float8 as usdrub_rate, usdrub_rate_at, usdrub_source
     from agent_core.settings where id`;
+  const since = settings.stats_since;
   const [agents, open, closed, marks, dataStatus, signals, equity, lessons, news, newsSources, notifications, replication, stats, sparkRows, dailyRows] = await Promise.all([
     sql`select id, name, parent_id, generation, status, halted_reason, capital_start::float8 as capital_start, cash::float8 as cash, started_at, created_at,
-               state, config from agent_core.agents order by created_at`,
+               state, config from agent_core.agents where coalesce((config->'strategy'->>'retired')::boolean, false) = false order by created_at`,
     sql`select id::int as id, agent_id, market, symbol, side, qty::float8 as qty, entry_price::float8 as entry_price, entry_time, entry_fee::float8 as entry_fee,
                entry_notional::float8 as entry_notional, sl_price::float8 as sl, tp_price::float8 as tp, risk_usd::float8 as risk_usd, quality::float8 as quality, setup_key
         from agent_core.positions where status = 'open' order by entry_time desc`,
     lite ? Promise.resolve([]) : sql`select id::int as id, agent_id, market, symbol, side, qty::float8 as qty, entry_price::float8 as entry_price, entry_time, exit_price::float8 as exit_price, exit_time,
                close_reason, pnl_usd::float8 as pnl_usd, r_multiple::float8 as r, quality::float8 as quality, setup_key
-        from agent_core.positions where status = 'closed' order by exit_time desc limit 60`,
+        from agent_core.positions where status = 'closed' and entry_time >= ${since} order by exit_time desc limit 60`,
     sql`select distinct on (symbol) symbol, c::float8 as price, extract(epoch from open_time) * 1000 as t from agent_core.candles order by symbol, open_time desc`,
     sql`select symbol, market, source, ok, last_attempt_at, last_ok_at, last_candle_open, lag_seconds::float8 as lag_seconds, has_volume, error, assessment from agent_core.data_status order by market, symbol`,
     sql`select s.agent_id, s.ts, s.market, s.symbol, s.candle_time, s.side, s.quality::float8 as quality, s.decision, s.reason
-        from agent_core.signals s order by s.ts desc limit 40`,
-    sql`select agent_id, extract(epoch from ts) * 1000 as t, equity::float8 as e from agent_core.equity_snapshots where ts > now() - interval '24 hours' order by ts`,
+        from agent_core.signals s where s.ts >= ${since} order by s.ts desc limit 40`,
+    sql`select agent_id, extract(epoch from ts) * 1000 as t, equity::float8 as e from agent_core.equity_snapshots where ts > now() - interval '24 hours' and ts >= ${since} order by ts`,
     sql`select agent_id, setup_key, trades, wins, sum_r::float8 as sum_r, status, blocked_until, note, inherited_from from agent_core.lessons order by updated_at desc limit 60`,
     sql`select source, title, url, published_at, fetched_at, score::float8 as score, impact, markets, tags from agent_core.news_items order by coalesce(published_at, fetched_at) desc limit 40`,
     sql`select source, ok, last_attempt_at, last_ok_at, items_seen, items_new, error from agent_core.news_sources order by source`,
@@ -90,7 +95,7 @@ async function overview(sql: any, lite = false) {
                coalesce(avg(r_multiple), 0)::float8 as avg_r,
                coalesce(sum(pnl_usd) filter (where pnl_usd > 0), 0)::float8 as gross_win, coalesce(-sum(pnl_usd) filter (where pnl_usd < 0), 0)::float8 as gross_loss,
                coalesce(sum(coalesce(entry_fee, 0) + coalesce(exit_fee, 0)), 0)::float8 as fees
-        from agent_core.positions where status = 'closed' group by agent_id`,
+        from agent_core.positions where status = 'closed' and entry_time >= ${since} group by agent_id`,
     sql`select symbol, array_agg(c::float8 order by open_time) as closes
         from (select symbol, open_time, c from agent_core.candles where open_time > now() - interval '75 minutes') x group by symbol`,
     sql`select day, trades, wins, losses, pnl, fees, cum_pnl from (
@@ -99,7 +104,7 @@ async function overview(sql: any, lite = false) {
           from (select (exit_time at time zone 'utc')::date as day, count(*)::int as trades, (count(*) filter (where pnl_usd > 0))::int as wins,
                        (count(*) filter (where pnl_usd < 0))::int as losses, sum(pnl_usd)::float8 as pnl,
                        sum(coalesce(entry_fee, 0) + coalesce(exit_fee, 0))::float8 as fees
-                from agent_core.positions where status = 'closed' group by 1) d) x
+                from agent_core.positions where status = 'closed' and entry_time >= ${since} group by 1) d) x
         order by day desc limit 30`,
   ]);
   const spark: Record<string, number[]> = {};
@@ -112,6 +117,7 @@ async function overview(sql: any, lite = false) {
     return { ...p, mark, unrealized_usd: unreal, value: p.entry_notional + (mark - p.entry_price) * p.qty * dir };
   });
   const statOf = new Map<string, any>(stats.map((s: any) => [s.agent_id, s]));
+  const activeIds = new Set<string>(agents.map((a: any) => a.id));
   const agentsOut = agents.map((a: any) => {
     const mine = openOut.filter((p: any) => p.agent_id === a.id);
     const equityNow = a.cash + mine.reduce((s: number, p: any) => s + p.value, 0);
@@ -132,12 +138,12 @@ async function overview(sql: any, lite = false) {
       capital_start: a.capital_start, cash: a.cash, equity: equityNow, capital, open_positions: mine.length,
       drawdown_pct: peak > 0 ? ((peak - equityNow) / peak) * 100 : 0, started_at: a.started_at, last_tick_at: a.state?.last_tick_at ?? null,
       stats: { ...st, win_rate: st.trades ? st.wins / st.trades : null, profit_factor: st.gross_loss > 0 ? st.gross_win / st.gross_loss : null },
-      config: { markets: a.config?.markets, allow_short: a.config?.allow_short, strategy: a.config?.strategy, risk: a.config?.risk, costs: a.config?.costs, learning: a.config?.learning },
+      config: { engine: a.config?.engine ?? "minute", markets: a.config?.markets, allow_short: a.config?.allow_short, strategy: a.config?.strategy, risk: a.config?.risk, costs: a.config?.costs, learning: a.config?.learning, display: a.config?.display ?? null },
     };
   });
   return {
     server_time: new Date().toISOString(), settings, agents: agentsOut, open_positions: openOut, closed_trades: closed, closed_total: stats.reduce((n: number, r: any) => n + r.trades, 0), daily: dailyRows, data_status: dataStatus, signals,
-    equity_curve: equity, lessons, news, news_sources: newsSources, notifications, replication_events: replication, spark,
+    equity_curve: equity, lessons: lessons.filter((l: any) => activeIds.has(l.agent_id)), news, news_sources: newsSources, notifications, replication_events: replication, spark,
   };
 }
 
@@ -156,7 +162,8 @@ async function control(sql: any, body: any) {
                    a.cash + coalesce((select sum(entry_notional) from agent_core.positions p where p.agent_id = a.id and p.status = 'open'), 0)::float8)
                  where a.status = 'halted' and a.mode = 'paper' and (${agentId}::uuid is null or a.id = ${agentId}::uuid)`;
         await tx`update agent_core.agents set status = 'active', halted_reason = null, started_at = now()
-                 where status in ('stopped', 'halted') and mode = 'paper' and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
+                 where status in ('stopped', 'halted') and mode = 'paper' and coalesce((config->'strategy'->>'retired')::boolean, false) = false
+                   and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
       });
       await note("Start über das Dashboard", agentId ? "Agent gestartet (Simulation)." : "Alle Agenten gestartet (Simulation), Kill-Switch aus.");
       break;
@@ -166,7 +173,7 @@ async function control(sql: any, body: any) {
         await tx`update agent_core.agents set status = 'stopped' where status in ('active', 'halted') and mode = 'paper' and (${agentId}::uuid is null or id = ${agentId}::uuid)`;
         if (!agentId) await tx`update agent_core.settings set kill_switch = true where id`;
       });
-      await note("Stopp über das Dashboard", agentId ? "Agent gestoppt, offene Positionen werden im nächsten Minutenlauf geschlossen." : "Alle Agenten gestoppt, Kill-Switch an. Offene Positionen werden im nächsten Minutenlauf geschlossen.");
+      await note("Stopp über das Dashboard", agentId ? "Agent gestoppt, offene Positionen werden im nächsten Lauf geschlossen (spätestens nach 5 Minuten)." : "Alle Agenten gestoppt, Kill-Switch an. Offene Positionen werden im nächsten Lauf geschlossen (spätestens nach 5 Minuten).");
       break;
     }
     case "kill_switch": {

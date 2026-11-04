@@ -3,11 +3,13 @@
 // longs on the Bybit DEMO account. Runs every 5 minutes; a trading decision is made once per symbol after a new bar has CLOSED.
 // Protection layer (can only delay or shrink entries, never add risk): kill switch, agent status, max drawdown, fresh high-impact
 // news (no new entry for 30 min), calendar events (FOMC, US payrolls: no new entry from 20 h before to 2 h after), many high-impact
-// crypto headlines in 24 h (half size).
+// crypto headlines in 24 h (half size). Small accounts: a buy below risk.min_order_usd is raised to that minimum (exchange
+// minimum order), but never above the full 1/N share; so on a small account the half size has no effect.
+// Also stores the USD/RUB rate (Bank of Russia, hourly) in agent_core.settings for showing results in rubles.
 // Auth: header x-agent-secret (Vault agent_cron_secret); verify_jwt is off. Body: {} or { "dry_run": true } (everything is rolled back).
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 import { type Bar } from "./lab.ts";
-import { decide, eventBlock, nfp, ruleOf, type TrendCfg, weightOf } from "./engine.ts";
+import { decide, eventBlock, nfp, orderUsd, parseCbrUsd, ruleOf, type TrendCfg, weightOf } from "./engine.ts";
 
 const BYBIT = "https://api.bybit.com"; // public market data only, no key
 const LOCK_KEY = 738202;
@@ -66,8 +68,36 @@ async function ticker(symbol: string): Promise<{ bid: number; ask: number; last:
   return { bid, ask, last };
 }
 
+/** USD/RUB for showing results in rubles: official Bank of Russia rate, Yahoo RUB=X as fallback. Never used for trading decisions. */
+async function usdRub(): Promise<{ rate: number; source: string } | null> {
+  const get = async (url: string, headers: Record<string, string> = {}) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(url, { headers, signal: ctrl.signal });
+      return res.ok ? await res.text() : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const xml = await get("https://www.cbr.ru/scripts/XML_daily.asp");
+  const cbr = xml ? parseCbrUsd(xml) : null;
+  if (cbr) return { rate: cbr.rate, source: `cbr ${cbr.date}` };
+  const y = await get("https://query1.finance.yahoo.com/v8/finance/chart/RUB=X?interval=1d&range=5d", { "user-agent": "trading-sim-agent/0.1 (paper-trading research)" });
+  try {
+    const px = Number(JSON.parse(y ?? "null")?.chart?.result?.[0]?.meta?.regularMarketPrice);
+    if (px > 1 && px < 1000) return { rate: px, source: "yahoo RUB=X" };
+  } catch { /* not JSON */ }
+  return null;
+}
+
 async function tick(sql: any, dry: boolean) {
   const now = Date.now();
+  // ruble rate at most once per hour (display only)
+  const [fx] = await sql`select usdrub_rate_at from agent_core.settings where id`;
+  const rub = !fx?.usdrub_rate_at || now - new Date(fx.usdrub_rate_at).getTime() > 3600_000 ? await usdRub() : null;
   const barsCache = new Map<string, Promise<Bar[]>>();
   const quoteCache = new Map<string, Promise<{ bid: number; ask: number; last: number }>>();
   const barsOf = (s: string, tf: number) => {
@@ -85,6 +115,7 @@ async function tick(sql: any, dry: boolean) {
     if (!lk.got) return { status: "skipped_locked" };
     const [st] = await tx`select kill_switch, paper_only, markets_enabled from agent_core.settings where id`;
     if (!st || st.paper_only !== true) return { status: "refused_not_paper_only" };
+    if (rub) await tx`update agent_core.settings set usdrub_rate = ${rub.rate}, usdrub_rate_at = now(), usdrub_source = ${rub.source} where id`;
     const agents = await tx`
       select id, name, status, config, state, capital_start::float8 as capital_start, cash::float8 as cash
       from agent_core.agents where mode = 'paper' and config->>'engine' = 'trend' order by created_at`;
@@ -196,8 +227,11 @@ async function tick(sql: any, dry: boolean) {
             const q = await quoteOf(symbol);
             const fill = q.ask * (1 + cc.slip_bps / 1e4);
             const w = weightOf(cfg, syms.length, d.vol) * newsFactor;
-            const qty = Math.floor(((equity * w) / fill) * 1e6) / 1e6;
+            // small accounts: raise to the exchange minimum (config risk.min_order_usd), at most to the full 1/N share
+            const size = orderUsd(equity, w, syms.length, Number(risk.min_order_usd ?? 0));
+            const qty = (size.raised ? Math.ceil : Math.floor)((size.usd / fill) * 1e6) / 1e6;
             const notional = qty * fill, fee = (notional * cc.fee_bps) / 1e4;
+            const share = equity > 0 ? notional / equity : 0;
             decided[symbol] = last.ts; blocked[symbol] = d.blocked;
             if (notional < (risk.min_notional_usd ?? 10)) { await signal(symbol, last.ts, "skipped", "size_min_notional", { ...feats, weight: w }); continue; }
             if (notional + fee > cash) { await signal(symbol, last.ts, "skipped", "insufficient_cash", { ...feats, weight: w }); continue; }
@@ -206,13 +240,13 @@ async function tick(sql: any, dry: boolean) {
             await tx`
               insert into agent_core.positions (agent_id, market, symbol, side, qty, entry_price, entry_fee, entry_notional, sl_price, tp_price, risk_usd, quality, setup_key, features, note)
               values (${a.id}, 'crypto', ${symbol}, 'long', ${qty}, ${fill}, ${fee}, ${notional}, ${sl}, null, ${riskUsd}, null, ${`${symbol}:long:${rule.id}`},
-                      ${tx.json({ ...feats, weight: w, news_factor: newsFactor, bid: q.bid, ask: q.ask } as any)}, ${`Trend-Regel: ${rule.name}`})`;
+                      ${tx.json({ ...feats, weight: w, share, raised_to_min: size.raised, news_factor: newsFactor, bid: q.bid, ask: q.ask } as any)}, ${`Trend-Regel: ${rule.name}`})`;
             cash -= notional + fee;
             equity -= fee;
             traded = true;
-            await notify("trade_opened", `${symbol} long eröffnet (${rule.name})`, `Einstieg ${fill.toPrecision(7)}, Größe ${r2(notional)} USD (${r2(w * 100)} % des Kapitals)`, { symbol, side: "long", entry: fill, notional, weight: w, rule: rule.id });
-            await signal(symbol, last.ts, "entry", null, { ...feats, weight: w });
-            log.push({ symbol, action: "opened", notional: r2(notional), weight: r2(w * 100) });
+            await notify("trade_opened", `${symbol} long eröffnet (${rule.name})`, `Einstieg ${fill.toPrecision(7)}, Größe ${r2(notional)} USD (${r2(share * 100)} % des Kapitals${size.raised ? ", auf die Mindestorder angehoben" : ""})`, { symbol, side: "long", entry: fill, notional, weight: w, share, raised_to_min: size.raised, rule: rule.id });
+            await signal(symbol, last.ts, "entry", size.raised ? "raised_to_min_order" : null, { ...feats, weight: w, share });
+            log.push({ symbol, action: "opened", notional: r2(notional), share_pct: r2(share * 100), raised_to_min: size.raised });
           } else {
             blocked[symbol] = d.blocked; decided[symbol] = last.ts;
             await signal(symbol, last.ts, "no_signal", d.blocked ? "waiting_after_trailing_stop" : null, feats);
@@ -238,7 +272,7 @@ async function tick(sql: any, dry: boolean) {
       if (profitClose && a.status === "active") replication = (await tx`select agent_core.fn_check_replication(${a.id}::uuid) as res`)[0].res;
       out.push({ agent: a.name, rule: rule?.id ?? null, status: halted ? "halted" : a.status, stop_reason: stopReason, equity: r2(equity), cash: r2(cash), open: openNow.length, actions: log, replication });
     }
-    const result = { status: "ok", dry_run: dry, now: iso(now), protection: { news_hold: newsHold, calendar_hold: calendarHold, news_factor: newsFactor }, agents: out };
+    const result = { status: "ok", dry_run: dry, now: iso(now), usdrub: rub, protection: { news_hold: newsHold, calendar_hold: calendarHold, news_factor: newsFactor }, agents: out };
     if (dry) throw new Rollback(result);
     return result;
   });

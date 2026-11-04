@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { type Bar, type Costs, portfolio, rulebook } from "./lab.ts";
-import { decide, eventBlock, nfp, ruleOf, type TrendCfg, weightOf } from "./engine.ts";
+import { decide, eventBlock, nfp, orderUsd, parseCbrUsd, ruleOf, type TrendCfg, weightOf } from "./engine.ts";
 
 const DAY = 86_400_000;
 function rng(seed: number) {
@@ -66,4 +66,22 @@ test("calendar: payrolls on the first Friday, holidays shift, block window", () 
   assert.equal(eventBlock(Date.UTC(2026, 11, 9, 0, 5), [t]), true); // decision at 00:05 on FOMC day: wait
   assert.equal(eventBlock(Date.UTC(2026, 11, 9, 21, 30), [t]), false); // 2.5 h after: free again
   assert.equal(eventBlock(Date.UTC(2026, 11, 7, 0, 5), [t]), false);
+});
+
+test("small account: buys below the exchange minimum are raised to it, never above the 1/N share", () => {
+  const w = (1 / 3) * 0.25 * 0.5; // quarter size, halved by the news factor
+  assert.deepEqual(orderUsd(61.22, w, 3, 6), { usd: 6, raised: true }); // 2.55 USD wanted -> 6 USD (Bybit minimum 5)
+  assert.deepEqual(orderUsd(10000, w, 3, 6), { usd: 10000 * w, raised: false }); // big account: weight decides
+  assert.equal(orderUsd(15, w, 3, 6).raised, false); // 6 USD would be more than 1/3 of 15 USD: stays too small, gets skipped
+  assert.equal(orderUsd(61.22, w, 3, 0).usd, 61.22 * w); // no minimum configured
+});
+
+test("bank of russia XML: USD rate with nominal and comma decimal", () => {
+  const xml = `<?xml version="1.0" encoding="windows-1251"?><ValCurs Date="04.11.2026" name="Foreign Currency Market">` +
+    `<Valute ID="R01010"><NumCode>036</NumCode><CharCode>AUD</CharCode><Nominal>1</Nominal><Name>x</Name><Value>53,1234</Value></Valute>` +
+    `<Valute ID="R01235"><NumCode>840</NumCode><CharCode>USD</CharCode><Nominal>1</Nominal><Name>y</Name><Value>81,6699</Value><VunitRate>81,6699</VunitRate></Valute>` +
+    `<Valute ID="R01375"><NumCode>156</NumCode><CharCode>CNY</CharCode><Nominal>10</Nominal><Name>z</Name><Value>112,3</Value></Valute></ValCurs>`;
+  assert.deepEqual(parseCbrUsd(xml), { rate: 81.6699, date: "2026-11-04" });
+  assert.equal(parseCbrUsd("<html>error</html>"), null);
+  assert.equal(parseCbrUsd(xml.replace("81,6699</Value>", "0,5</Value>")), null); // implausible value
 });

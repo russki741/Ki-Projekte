@@ -52,6 +52,14 @@ Sie kann einen Kauf nur verschieben oder verkleinern, nie etwas hinzufügen.
 
 Verkäufe werden nie verschoben. Die Nachrichten-Bewertung ist eine Stichwort-Heuristik. In den letzten 10 Tagen galt die halbe Größe an etwa jedem zweiten Tag.
 
+## Kleines Konto: 5.000 Rubel je Agent (seit 4. November 2026)
+
+- Startkapital je Agent 5.000 Rubel = 61,22 USDT (Kurs der Zentralbank Russland 81,67 Rubel je Dollar).
+- Bybit nimmt Orders erst ab 5 USDT an. Nach der Regel oben wären es je Markt nur 1 bis 5 USDT. Deshalb wird jeder Kauf auf mindestens 6 USDT angehoben (`risk.min_order_usd`), aber nie über ein Drittel des Kapitals. Praktisch kauft jeder Agent je Markt 6 USDT, also etwa 10 % des Kapitals, höchstens 3 Positionen gleichzeitig (etwa 30 %).
+- Damit wirkt die Größe nach Schwankung und die halbe Größe bei vielen Nachrichten nicht mehr; die Schutzschicht kann Käufe nur noch verschieben.
+- Grob geschätzt aus dem Test: größter Rückgang um 8 bis 10 %. Das liegt nah am Limit von 10 %. Wird es erreicht, verkauft der Agent alles und hält an, bis du ihn wieder startest.
+- Fällt eine Position um mehr als etwa 16 %, ist sie weniger als 5 USDT wert. Auf der Börse ließe sie sich dann nicht mehr verkaufen und bliebe als Rest liegen. Im Papier-Modus wird sie normal geschlossen.
+
 ## Agent Alpha
 
 Im Ruhestand seit 3. November 2026: `strategy.retired = true`, Status gestoppt. agent-tick hat seine drei offenen Positionen mit dem Grund `retired` geschlossen. Seine Märkte werden weiter gesammelt, die Marktübersicht in der App bleibt.

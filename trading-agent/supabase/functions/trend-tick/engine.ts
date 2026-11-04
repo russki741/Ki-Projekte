@@ -53,6 +53,28 @@ export function weightOf(cfg: TrendCfg, nSymbols: number, vol: number): number {
   return w * cfg.scale;
 }
 
+/**
+ * Order size in USD for a new position. Small accounts: when the weighted size is below the exchange minimum (minOrder),
+ * the order is raised to minOrder, but never above the full 1/N share of the equity. Otherwise the buy is too small to place.
+ */
+export function orderUsd(equity: number, weight: number, nSymbols: number, minOrder: number): { usd: number; raised: boolean } {
+  const want = equity * weight;
+  if (minOrder > 0 && want < minOrder && minOrder <= equity / Math.max(1, nSymbols)) return { usd: minOrder, raised: true };
+  return { usd: want, raised: false };
+}
+
+/** Official USD/RUB rate from the XML of the Bank of Russia (cbr.ru/scripts/XML_daily.asp): rubles per 1 USD, or null. */
+export function parseCbrUsd(xml: string): { rate: number; date: string } | null {
+  const date = /<ValCurs[^>]*Date="(\d{2})\.(\d{2})\.(\d{4})"/.exec(xml);
+  const m = /<Valute[^>]*>(?:(?!<\/Valute>)[\s\S])*?<CharCode>USD<\/CharCode>((?:(?!<\/Valute>)[\s\S])*?)<\/Valute>/.exec(xml);
+  if (!date || !m) return null;
+  const nominal = Number((/<Nominal>([^<]+)<\/Nominal>/.exec(m[0])?.[1] ?? "1").replace(",", "."));
+  const value = Number((/<Value>([^<]+)<\/Value>/.exec(m[0])?.[1] ?? "").replace(",", "."));
+  const rate = value / nominal;
+  if (!(rate > 1 && rate < 1000)) return null;
+  return { rate, date: `${date[3]}-${date[2]}-${date[1]}` };
+}
+
 // ---------- calendar of scheduled high-impact events (protection layer: only blocks NEW entries) ----------
 
 /** US non-farm payrolls: first Friday of the month at 12:30 UTC (13:30 in winter; the block window covers both). Jan 1 and Jul 3/4 shift a week. */

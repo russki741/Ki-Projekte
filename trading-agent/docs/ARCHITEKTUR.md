@@ -65,12 +65,12 @@ agent-tick sammelt weiter jede Minute die Kerzen aller Märkte und bewertet sie 
 | Funktion | Version in Supabase | Aufgabe | Auslöser |
 |---|---|---|---|
 | agent-tick | 3 | Kerzen sammeln, Märkte bewerten; Minuten-Agenten: Papier-Trades, Risiko, Lernen, Vermehrung | Zeitplan, jede Minute |
-| trend-tick | 1 | Trend-Agenten: Tagesregel, Schutzschicht, Papier-Trades, Rückgangs-Limit, Vermehrung | Zeitplan, alle 5 Min |
+| trend-tick | 2 | Trend-Agenten: Tagesregel, Schutzschicht, Mindestorder, Papier-Trades, Rückgangs-Limit, Vermehrung; Rubelkurs stündlich | Zeitplan, alle 5 Min |
 | bybit-demo | 6 | Spiegeln auf Bybit-Demo, Kontostand, Selbsttest | Zeitplan, alle 30 s |
 | news-scan | 1 | Nachrichten lesen und bewerten | Zeitplan, alle 10 Min |
 | probe | 3 | Datenquellen prüfen (alte Tabelle `trading_sim`) | Zeitplan, 1 bzw. 5 Min |
-| dashboard-api | 6 | Daten und Steuerung für die App | App |
-| bybit-view | 3 | Daten und Schalter für den Bereich Bybit-Demo | App |
+| dashboard-api | 7 | Daten und Steuerung für die App, zählt nur ab `stats_since` | App |
+| bybit-view | 4 | Daten und Schalter für den Bereich Bybit-Demo, zählt nur ab `stats_since` | App |
 | backtest | 1 | Strategie auf gespeicherter 1-Min-Historie nachspielen | auf Abruf |
 | strategy-lab | 3 | Bekannte Strategien und das Regelbuch (Portfolio, 4h und Tag) testen | auf Abruf |
 
@@ -92,7 +92,7 @@ Alle Funktionen haben `verify_jwt = false` und prüfen selbst: die Zeitplan-Funk
 
 | Tabelle | Inhalt |
 |---|---|
-| settings | eine Zeile: Notbremse, `paper_only` (immer true), Märkte, Vermehrungsregeln, EUR/USD-Kurs |
+| settings | eine Zeile: Notbremse, `paper_only` (immer true), Märkte, Vermehrungsregeln, EUR/USD- und USD/RUB-Kurs, Beginn der Statistik (`stats_since`) |
 | agents | Agenten mit Konfiguration, Status, Kapital |
 | positions | Papier-Trades, offen und geschlossen, mit Gebühren und Ergebnis |
 | signals | Entscheidungen pro Markt (Minuten-Agent jede Minute, Trend-Agent je Tageskerze) |

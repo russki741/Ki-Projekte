@@ -14,6 +14,19 @@ Ohne App, im Supabase SQL-Editor:
 update agent_core.settings set kill_switch = true where id;
 ```
 
+## Statistik-Zeitraum und Archiv
+
+Die App zählt nur Trades, die nach `settings.stats_since` eröffnet wurden. Der letzte Neustart war am 4. November 2026: je Agent 5.000 Rubel (61,22 USDT zum Kurs der Zentralbank Russland). Nichts wurde gelöscht. Das Archiv abfragen:
+
+```sql
+select a.name, count(*) as trades, round(sum(p.pnl_usd), 2) as ergebnis_usd
+from agent_core.positions p join agent_core.agents a on a.id = p.agent_id
+where p.status = 'closed' and p.entry_time < (select stats_since from agent_core.settings where id)
+group by a.name;
+```
+
+Der Rubelkurs kommt stündlich von der Zentralbank Russland (`cbr.ru/scripts/XML_daily.asp`), ersatzweise von Yahoo (`RUB=X`). Er dient nur der Anzeige. Gehandelt wird in USDT.
+
 ## Termin-Kalender pflegen
 
 Die Trend-Agenten kaufen von 20 Stunden vor bis 2 Stunden nach wichtigen Terminen nichts Neues. Den US-Arbeitsmarktbericht berechnet trend-tick selbst (erster Freitag im Monat). US-Zinsentscheide stehen in der Tabelle `event_calendar`. Eingetragen sind alle Termine bis Dezember 2027 (Quelle: Pressemitteilung der Fed vom 5. September 2025). Neue Termine nachtragen, sobald die Fed sie veröffentlicht. Die Uhrzeit ist 14:00 Uhr New York, also 19:00 UTC im Winter und 18:00 UTC im Sommer:

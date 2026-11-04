@@ -33,7 +33,7 @@ async function sha256hex(s: string) {
 
 async function overview(sql: any) {
   const [cfg] = await sql`select enabled, enabled_since, last_reconcile_at, last_error, max_entry_age_s from agent_core.exchange_config where id`;
-  const [st] = await sql`select paper_only, kill_switch from agent_core.settings where id`;
+  const [st] = await sql`select paper_only, kill_switch, stats_since from agent_core.settings where id`;
   const [wallet] = await sql`select ts, total_equity_usd::float8 as total_equity_usd, coins from agent_core.exchange_wallet_snapshots order by ts desc limit 1`;
   const history = await sql`select ts, total_equity_usd::float8 as equity from (select ts, total_equity_usd from agent_core.exchange_wallet_snapshots order by ts desc limit 300) t order by ts`;
 
@@ -44,6 +44,7 @@ async function overview(sql: any) {
     from agent_core.exchange_orders o
     join agent_core.positions p on p.id = o.position_id
     left join agent_core.agents a on a.id = p.agent_id
+    where p.entry_time >= (select stats_since from agent_core.settings where id)
     order by o.id desc limit 60`;
 
   // finished round trips: bought and sold on the demo account. net = what the USDT balance really changed
@@ -58,7 +59,7 @@ async function overview(sql: any) {
     join agent_core.exchange_orders o on o.position_id = i.position_id and o.leg = 'out' and o.status in ('filled', 'partial')
     join agent_core.positions p on p.id = i.position_id
     left join agent_core.agents a on a.id = p.agent_id
-    where i.leg = 'in' and i.status in ('filled', 'partial')
+    where i.leg = 'in' and i.status in ('filled', 'partial') and p.entry_time >= (select stats_since from agent_core.settings where id)
     order by o.updated_at desc limit 100`;
 
   const open = await sql`
@@ -71,8 +72,13 @@ async function overview(sql: any) {
     where i.leg = 'in' and i.status in ('filled', 'partial') and (o.id is null or o.status not in ('filled', 'partial', 'skipped'))
     order by i.created_at desc`;
 
-  const counts = await sql`select status, count(*)::int as n from agent_core.exchange_orders group by status order by status`;
-  const [slip] = await sql`select avg(slip_bps_vs_paper)::float8 as avg_bps, count(slip_bps_vs_paper)::int as n from agent_core.exchange_orders where status in ('filled', 'partial')`;
+  // statistics period as in dashboard-api: orders of positions opened before settings.stats_since are archive.
+  // Open positions on the demo account are always listed, whatever their age, so nothing can be forgotten there.
+  const counts = await sql`select o.status, count(*)::int as n from agent_core.exchange_orders o join agent_core.positions p on p.id = o.position_id
+                           where p.entry_time >= (select stats_since from agent_core.settings where id) group by o.status order by o.status`;
+  const [slip] = await sql`select avg(o.slip_bps_vs_paper)::float8 as avg_bps, count(o.slip_bps_vs_paper)::int as n from agent_core.exchange_orders o
+                           join agent_core.positions p on p.id = o.position_id
+                           where o.status in ('filled', 'partial') and p.entry_time >= (select stats_since from agent_core.settings where id)`;
 
   const n = pairs.length;
   const stats = {

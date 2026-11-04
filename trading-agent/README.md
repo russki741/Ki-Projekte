@@ -11,7 +11,7 @@ Handelsagenten, die rund um die Uhr Krypto- und Devisenkurse auswerten, Trades i
 
 ## Was läuft
 
-- **trend-tick** (alle 5 Minuten): die Trend-Agenten Beta (Momentum-Abstimmung 30/90/180 Tage) und Gamma (Turtle-Ausbruch 55/20 Tage) entscheiden einmal je abgeschlossener Tageskerze über BTC, ETH und SOL. Größe nach Schwankung, höchstens 8,3 % des Kapitals je Markt, Rückgangs-Limit 10 %, Nachrichten und Termine als Schutzschicht. Details: [docs/REGELBUCH.md](docs/REGELBUCH.md).
+- **trend-tick** (alle 5 Minuten): die Trend-Agenten Beta (Momentum-Abstimmung 30/90/180 Tage) und Gamma (Turtle-Ausbruch 55/20 Tage) entscheiden einmal je abgeschlossener Tageskerze über BTC, ETH und SOL. Seit 4. November 2026 je 5.000 Rubel Startkapital (61,22 USDT), jeder Kauf mindestens 6 USDT (Bybit-Minimum 5 USDT), Rückgangs-Limit 10 %, Nachrichten und Termine als Schutzschicht. Details: [docs/REGELBUCH.md](docs/REGELBUCH.md).
 - **agent-tick** (jede Minute): holt geschlossene 1-Minuten-Kerzen (BTC, ETH, SOL über Bybit, EUR/USD über Yahoo) und bewertet sie für die Marktübersicht. Der Minuten-Agent Alpha, der damit gehandelt hat, ist seit 3. November 2026 im Ruhestand.
 - **bybit-demo** (alle 30 Sekunden): spiegelt neue Krypto-Käufe und -Verkäufe der Agenten auf das Bybit-Demo-Konto, speichert Ausführungen, Gebühren, Preisabweichung und Kontostand.
 - **news-scan** (alle 10 Minuten): liest öffentliche Nachrichten-Feeds und bewertet Schlagzeilen mit einer Stichwort-Heuristik. Nach wichtigen Meldungen kaufen die Agenten 30 Minuten lang nichts Neues.
@@ -28,6 +28,8 @@ Details: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) · Bedienung und Notfälle: 
 - Eine Trefferquote von 80 % oder 95 % liefert keine der getesteten Strategien.
 - Die Nachrichten-Auswertung ist eine Stichwort-Heuristik, kein Sprachmodell.
 - EUR/USD läuft nur im Papier-Modell. Auf Bybit wird nur gekauft (Spot), Leerverkäufe gibt es dort nicht.
+- Die App zählt seit dem Neustart am 4. November 2026. Ältere Trades (Agent Alpha) sind archiviert, nicht gelöscht.
+- Echtes Geld: Dafür gibt es bewusst keinen Baustein. Er kommt frühestens nach einer Testphase von 2 bis 3 Monaten und nur mit ausdrücklicher Zustimmung.
 - Nichts hier ist Anlageberatung.
 
 ## Ordner
@@ -63,7 +65,7 @@ Browser-Tests der App (Playwright mit Chromium):
 node tests/app.test.cjs
 ```
 
-Stand 3. November 2026: 49 Tests der Funktionen, der Backtest-Selbsttest und 101 Tests der App, alle bestanden.
+Stand 4. November 2026: 51 Tests der Funktionen, der Backtest-Selbsttest und 104 Tests der App, alle bestanden.
 
 ## Regeln für Änderungen
 

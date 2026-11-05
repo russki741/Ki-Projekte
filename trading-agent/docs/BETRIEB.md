@@ -47,7 +47,16 @@ where status = 'open' and agent_id in (select id from agent_core.agents where co
 select symbol, market, last, quote_time, now() - quote_time as alter, source from agent_core.quotes order by symbol;
 ```
 
-Ein Währungskurs, der älter als 20 Minuten ist, gilt als „Markt geschlossen“. Freitag 22:00 bis Sonntag 22:00 UTC ist das normal.
+Ein Währungskurs, der älter als 20 Minuten ist, gilt als „kein aktueller Kurs“. Freitag 22:00 bis Sonntag 22:00 UTC ist das normal (Wochenende). Unter der Woche ist es eine Störung bei Yahoo: Am 5. November 2026 kamen ab 17:10 UTC für Währungen, Aktien und Gold-Futures keine neuen Kurse mehr, nur Krypto lief weiter. Die App sagt dann „Yahoo liefert seit … keine neuen Kurse“; Trades in Währungen sind gesperrt, Delta wartet mit Entscheidungen.
+
+Kerzen und Kurse ohne App prüfen (aus der Datenbank, mit dem Server-Schlüssel, nur Marktdaten):
+
+```sql
+select net.http_post(url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/dashboard-api',
+  headers := jsonb_build_object('content-type', 'application/json', 'x-agent-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'agent_cron_secret')),
+  body := '{"action":"manual_chart","symbol":"BTCUSDT","tf":"15","limit":3}'::jsonb);
+-- danach: select status_code, content from net._http_response order by id desc limit 1;
+```
 
 ## Trend-Agenten prüfen
 

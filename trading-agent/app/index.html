@@ -252,7 +252,26 @@ tfoot td{font-weight:700;border-top:2px solid var(--line-2);background:var(--bg)
 .ticket{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:14px}
 .ticket-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .ticket .big{font-size:clamp(1.9rem,7vw,2.5rem);font-weight:700;letter-spacing:-.02em;line-height:1.05}
-.mt-chart svg{display:block;width:100%;height:auto}
+/* candle chart */
+.cbox{display:grid;gap:8px}
+.ctools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.ctfs{display:flex;gap:4px;flex-wrap:wrap}
+.ctfs .tab{padding:4px 9px;font-size:.85rem;margin:0;min-width:40px}
+.ctfs .tab[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.cstat{display:inline-flex;gap:6px;align-items:center;font-size:.85rem;color:var(--ink-2);min-width:0}
+.cbtns{display:flex;gap:6px;flex-wrap:wrap}
+.cwrap{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.chost{height:340px;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.chost canvas{display:block}
+.clegend{position:absolute;left:8px;top:6px;z-index:1;display:flex;gap:4px 10px;flex-wrap:wrap;font-size:.78rem;color:var(--ink-3);pointer-events:none;background:var(--surface);opacity:.92;padding:2px 6px;border-radius:6px;max-width:calc(100% - 84px)}
+.clegend b{font-weight:600}
+.chint{margin:0}
+@media (min-width:900px){.chost{height:440px}}
+.cbox.full{position:fixed;inset:0;z-index:40;background:var(--bg);padding:10px 10px 14px;grid-template-rows:auto auto 1fr auto}
+.cbox.full .cwrap{min-height:0;height:100%}
+.cbox.full .chost{height:100%;touch-action:none}
+.cbox.full .chint{display:none}
+.cbox.full{grid-template-rows:auto auto 1fr}
 .sidesw{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .sidesw button{padding:12px 10px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg);font-weight:700;line-height:1.25}
 .sidesw button small{display:block;font-weight:500;font-size:.8rem;opacity:.85}
@@ -345,7 +364,20 @@ td .rowbtns{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
         <div class="mt-list" id="mt-list" role="group" aria-label="Märkte"></div>
         <div class="ticket" id="mt-ticket">
           <div id="mt-head"></div>
-          <div class="mt-chart" id="mt-chart"></div>
+          <div class="cbox" id="cbox">
+            <div class="ctools">
+              <div class="ctfs" id="ctfs" role="group" aria-label="Zeiteinheit der Kerzen"></div>
+              <div class="cbtns">
+                <button class="btn sm" type="button" data-cz="in" aria-label="Hineinzoomen">+</button>
+                <button class="btn sm" type="button" data-cz="out" aria-label="Herauszoomen">−</button>
+                <button class="btn sm" type="button" data-cz="now">Neueste</button>
+                <button class="btn sm" type="button" data-cfull="1">Vollbild</button>
+              </div>
+            </div>
+            <span class="cstat" id="cstat" aria-live="polite"></span>
+            <div class="cwrap"><div class="clegend" id="clegend"></div><div class="chost" id="chost"></div></div>
+            <p class="small muted chint">Wischen verschiebt die Zeit, zwei Finger zoomen, Tippen zeigt die Werte einer Kerze. Grüne Kerze: Kurs gestiegen, rote: gefallen. Gestrichelte Linien: Einstiegskurse offener Positionen.</p>
+          </div>
           <div id="mt-side"></div>
           <div class="amt">
             <label for="mt-amt">2. Betrag in Rubel</label>
@@ -767,7 +799,7 @@ function marketRow(r, rank, minQ) {
       <div><div class="price">${esc(px(r.price))}</div>${sparkline(r.spark)}</div>
       <div class="c-facts facts"><span>Trend: <b>${esc(TREND[f.trend] || "–")}</b></span><span>Momentum: <b>${esc(mom)}</b></span><span>Volatilität: <b>${esc(vola)}</b></span></div>
       <div class="c-q"><span class="chip ${dec[1]}">${esc(dec[0])}</span> ${dataChip(ds)}${qbar}</div>
-      <div class="c-btn"><button class="btn sm" type="button" data-open="m:${esc(ds.symbol)}" aria-expanded="${open}">${open ? "Weniger" : "Details"}</button></div>
+      <div class="c-btn"><button class="btn sm" type="button" data-open="m:${esc(ds.symbol)}" aria-expanded="${open}">${open ? "Weniger" : "Details"}</button>${(state.data?.manual?.markets || []).some((x) => x.symbol === ds.symbol) ? ` <button class="btn sm" type="button" data-chart-sym="${esc(ds.symbol)}">Chart</button>` : ""}</div>
     </div>
     <p class="note">${esc(entry)}</p>
     ${open ? marketDetail(r, err) : ""}
@@ -1378,16 +1410,10 @@ async function mtDetail(force) {
   } catch {}
   if (state.view === "handeln" && mt.sel === sym) renderTrade();
 }
-function bigChart(arr) {
-  if (!arr || arr.length < 2) return `<p class="small muted">Verlauf wird geladen …</p>`;
-  // drawn at the real width of its box, so the labels keep their size on phone and desktop
-  const W = Math.max(260, Math.floor($("#mt-chart")?.clientWidth || 600)), H = 130, lo = Math.min(...arr), hi = Math.max(...arr), span = hi - lo || 1;
-  const pts = arr.map((v, i) => `${((i / (arr.length - 1)) * (W - 8) + 4).toFixed(1)},${(H - 16 - ((v - lo) / span) * (H - 32)).toFixed(1)}`);
-  const up = arr[arr.length - 1] >= arr[0];
-  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-label="Kursverlauf der letzten ${arr.length} Stunden, von ${esc(px(arr[0]))} bis ${esc(px(arr[arr.length - 1]))}">
-    <polyline points="${pts.join(" ")}" fill="none" stroke="${up ? "var(--gain)" : "var(--loss)"}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-    <text x="4" y="11" font-size="12" fill="var(--ink-3)">Hoch ${esc(px(hi))}</text><text x="4" y="${H - 2}" font-size="12" fill="var(--ink-3)">Tief ${esc(px(lo))}</text>
-    <text x="${W - 4}" y="${H - 2}" text-anchor="end" font-size="12" fill="var(--ink-3)">letzte ${arr.length} Stunden</text></svg>`;
+/** Price for the ticket header: the live chart price when it is fresh, otherwise the last quote. */
+function livePx(sym, q) {
+  if (mt.live && mt.live.sym === sym && Date.now() - mt.live.at < 15000) return px(mt.live.price);
+  return q && Number.isFinite(q.mid) ? px(q.mid) : "…";
 }
 function renderTrade() {
   const D = state.data; if (!D) return;
@@ -1416,7 +1442,7 @@ function renderTrade() {
     const q = mtQuote(m.symbol);
     const price = q && Number.isFinite(q.mid) ? px(q.mid) : q?.error ? "kein Kurs" : "…";
     const ch = q && Number.isFinite(q.change_pct) ? `<span class="${clsPnl(q.change_pct)}">${esc(signed(q.change_pct))} % in 24 h</span>` : `<span>${esc(m.market === "forex" ? "Währung" : "Krypto")}</span>`;
-    const closed = q && q.fresh === false ? `<span class="chip warn">geschlossen</span>` : "";
+    const closed = q && q.fresh === false ? `<span class="chip warn">${fxClosedNow() ? "geschlossen" : "keine Kurse"}</span>` : "";
     return `<button class="mt-m" type="button" data-mt-sel="${esc(m.symbol)}" aria-pressed="${mt.sel === m.symbol}"><b>${esc(m.name)}</b><span>${esc(price)}</span>${ch}${closed}</button>`;
   }).join("") + (mt.err ? `<p class="small loss" style="grid-column:1/-1">Kurse konnten nicht geladen werden (${esc(mt.err)}). Nächster Versuch automatisch.</p>` : "");
 
@@ -1425,11 +1451,11 @@ function renderTrade() {
   const fx = m?.market === "forex";
   if (!m?.can_short && mt.side === "short") mt.side = "long";
   $("#mt-head").innerHTML = m ? `<div class="ticket-head">
-      <div><div class="small muted">${esc(m.name === SYM(m.symbol) ? (m.market === "forex" ? "Währungspaar" : "Krypto") + " · " + m.name : m.name + " · " + SYM(m.symbol))}</div><div class="big">${esc(q && Number.isFinite(q.mid) ? px(q.mid) : "…")}</div>
+      <div><div class="small muted">${esc(m.name === SYM(m.symbol) ? (m.market === "forex" ? "Währungspaar" : "Krypto") + " · " + m.name : m.name + " · " + SYM(m.symbol))}</div><div class="big" id="mt-big">${esc(livePx(m.symbol, q))}</div>
         ${q && Number.isFinite(q.change_pct) ? `<div class="small ${clsPnl(q.change_pct)}">${esc(signed(q.change_pct))} % in 24 Stunden</div>` : ""}</div>
       <div class="small muted" style="text-align:right">${q && Number.isFinite(q.bid) ? `Verkauf ${esc(px(q.bid))} · Kauf ${esc(px(q.ask))}<br>` : ""}${q?.at ? `Kurs von ${esc(q.source === "bybit" ? "Bybit" : "Yahoo")}, ${esc(agoIso(q.at))}` : "Kurs wird geladen …"}</div>
     </div>` : "";
-  $("#mt-chart").innerHTML = m ? bigChart(mt.detail?.symbol === m.symbol ? mt.detail.chart : null) : "";
+  if (m) { chartOpen(m.symbol, ch.tf); chartLines(); }
   $("#mt-side").innerHTML = !m ? "" : m.can_short
     ? `<div class="sidesw" role="group" aria-label="Richtung"><button type="button" class="buy" data-mt-side="long" aria-pressed="${mt.side === "long"}">Kaufen<small>Gewinn, wenn ${esc(SYM(m.symbol))} steigt</small></button><button type="button" class="sell" data-mt-side="short" aria-pressed="${mt.side === "short"}">Verkaufen<small>Gewinn, wenn ${esc(SYM(m.symbol))} fällt</small></button></div>`
     : `<p class="small muted">Krypto kannst du hier nur kaufen (Spot, kein Leerverkauf). Gewinn, wenn der Kurs steigt.</p>`;
@@ -1448,7 +1474,8 @@ function mtTicketDyn() {
   if (D.settings.kill_switch) problem = "Der Kill-Switch ist an. Neue Trades sind gesperrt, auch eigene. Deine offenen Positionen kannst du weiter schließen.";
   else if (D.settings.markets_enabled && D.settings.markets_enabled[m.market] === false) problem = m.market === "forex" ? "Währungen sind gerade ausgeschaltet." : "Krypto ist gerade ausgeschaltet.";
   else if (!q || !Number.isFinite(q.mid)) problem = q?.error ? `Kein Kurs: ${q.error}` : null;
-  else if (q.fresh === false) problem = "Der Devisenmarkt ist gerade geschlossen (Wochenende). Krypto kannst du jederzeit handeln.";
+  else if (q.fresh === false) problem = fxClosedNow() ? "Der Devisenmarkt ist gerade geschlossen (Wochenende). Krypto kannst du jederzeit handeln."
+    : `Yahoo liefert seit ${q.at ? new Date(q.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "einiger Zeit"} Uhr keine neuen Kurse für Währungen (Störung bei Yahoo). Ohne aktuellen Kurs ist kein Trade möglich. Krypto geht weiter.`;
   else if (amt && q.min_rub && amt < q.min_rub) problem = `Mindestens ${num(q.min_rub, 0)} ₽${m.market === "crypto" ? ", weil Bybit Orders erst ab 5 USDT annimmt" : ""}.`;
   else if (amt && Number.isFinite(free) && amt > free + 0.5) problem = `Du hast nur ${num(Math.floor(free), 0)} ₽ frei.`;
   const prev = $("#mt-prev"), act = $("#mt-act");
@@ -1532,6 +1559,383 @@ async function mtSend(body) {
   return res;
 }
 
+/* ---------- candle chart: own canvas drawing, no external library (nothing is loaded from other servers) ---------- */
+// Bars: { t: open time in ms (UTC), o, h, l, c, v }. Times are shown in the local time of the device.
+class CandleChart {
+  constructor(host, legend) {
+    this.host = host; this.legend = legend;
+    this.cv = document.createElement("canvas");
+    this.cv.setAttribute("role", "img");
+    host.appendChild(this.cv);
+    this.ctx = this.cv.getContext("2d");
+    this.bars = []; this.prec = 2; this.tfMs = 60000; this.lines = [];
+    this.barW = 9; this.off = 0; // off: bars scrolled back from the newest one (0 = newest visible)
+    this.hover = null; this.hy = null;
+    this.ptr = new Map(); this.pan = null; this.pinch = null;
+    this.W = 0; this.H = 0; this.raf = 0;
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(host);
+    const c = this.cv;
+    c.addEventListener("pointerdown", (e) => this.down(e));
+    c.addEventListener("pointermove", (e) => this.move(e));
+    c.addEventListener("pointerup", (e) => this.up(e));
+    c.addEventListener("pointercancel", (e) => this.up(e, true));
+    c.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse" && !this.ptr.size) { this.hover = null; this.draw(); } });
+    c.addEventListener("wheel", (e) => this.wheel(e), { passive: false });
+    c.addEventListener("dblclick", () => this.reset());
+    this.resize();
+  }
+  destroy() { this.ro.disconnect(); cancelAnimationFrame(this.raf); this.cv.remove(); }
+  resize() {
+    const r = this.host.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    this.W = Math.max(200, Math.floor(r.width)); this.H = Math.max(160, Math.floor(r.height));
+    this.cv.width = Math.round(this.W * dpr); this.cv.height = Math.round(this.H * dpr);
+    this.cv.style.width = this.W + "px"; this.cv.style.height = this.H + "px";
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.draw(true);
+  }
+  setData(bars, prec, tfMs, keepView) {
+    this.bars = bars.slice(); this.prec = prec; this.tfMs = tfMs;
+    if (!keepView) { this.off = 0; this.hover = null; this.barW = this.W < 500 ? 7 : 9; }
+    this.clamp(); this.draw();
+  }
+  /** Live update of one bar: replaces the running bar or appends a new one; the view stays where the user scrolled to. */
+  update(b) {
+    const n = this.bars.length, last = this.bars[n - 1];
+    if (!last || b.t > last.t) { this.bars.push(b); if (this.off > 0) this.off += 1; }
+    else if (b.t === last.t) this.bars[n - 1] = b;
+    else { const i = this.bars.findIndex((x) => x.t === b.t); if (i >= 0) this.bars[i] = b; else return; }
+    this.draw();
+  }
+  /** A trade price: moves the running bar, or opens the next bar when its time has come. */
+  tick(price, nowMs) {
+    const last = this.bars[this.bars.length - 1];
+    if (!last || !(price > 0)) return;
+    const slot = Math.floor(nowMs / this.tfMs) * this.tfMs;
+    if (slot > last.t) this.update({ t: slot, o: last.c, h: Math.max(last.c, price), l: Math.min(last.c, price), c: price, v: 0 });
+    else this.update({ ...last, h: Math.max(last.h, price), l: Math.min(last.l, price), c: price });
+  }
+  setLines(lines) { this.lines = lines || []; this.draw(); }
+  reset() { this.off = 0; this.barW = this.W < 500 ? 7 : 9; this.hover = null; this.draw(); }
+  zoom(f, x) {
+    const plotW = this.plotW(), n = this.bars.length;
+    const ax = x === undefined ? plotW : Math.min(plotW, x);
+    // bar i sits at x = plotW - (end - i + 0.5) * barW; keep the bar under the finger / mouse in place
+    const end = n - 1 + 3 - this.off, iA = end + 0.5 - (plotW - ax) / this.barW;
+    this.barW = Math.max(2, Math.min(40, this.barW * f));
+    const endN = iA - 0.5 + (plotW - ax) / this.barW;
+    this.off = n - 1 + 3 - endN; this.clamp(); this.draw();
+  }
+  clamp() { this.off = Math.max(0, Math.min(Math.max(0, this.bars.length - 8), this.off)); }
+  plotW() { return this.W - this.axisW(); }
+  axisW() {
+    this.ctx.font = this.font(11);
+    const hi = this.bars.length ? Math.max(...this.bars.slice(-300).map((b) => b.h)) : 1;
+    return Math.max(58, Math.ceil(this.ctx.measureText(this.fmt(hi)).width) + 16);
+  }
+  font(px_) { return `${px_}px ${getComputedStyle(document.body).fontFamily}`; }
+  fmt(p) { return NF[Math.min(6, this.prec)].format(p); }
+  // pointer handling: drag = scroll in time, two fingers = zoom, tap = show the values of a candle, mouse: hover
+  down(e) {
+    this.cv.setPointerCapture(e.pointerId);
+    this.ptr.set(e.pointerId, { x: e.offsetX, y: e.offsetY, t: performance.now(), moved: false, type: e.pointerType });
+    if (this.ptr.size === 1) this.pan = { x: e.offsetX, off: this.off };
+    if (this.ptr.size === 2) {
+      const [a, b] = [...this.ptr.values()];
+      this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, w: this.barW, x: (a.x + b.x) / 2 };
+      this.pan = null;
+    }
+  }
+  move(e) {
+    const p = this.ptr.get(e.pointerId);
+    if (!p) { if (e.pointerType === "mouse") this.setHover(e.offsetX, e.offsetY); return; }
+    p.x = e.offsetX; p.y = e.offsetY;
+    if (this.pinch && this.ptr.size >= 2) {
+      const [a, b] = [...this.ptr.values()];
+      const f = (Math.hypot(a.x - b.x, a.y - b.y) || 1) / this.pinch.d;
+      this.barW = this.pinch.w; this.zoom(f, this.pinch.x);
+      return;
+    }
+    if (this.pan) {
+      const dx = e.offsetX - this.pan.x;
+      if (Math.abs(dx) > 4) p.moved = true;
+      if (p.moved) { this.off = this.pan.off + dx / this.barW; this.clamp(); this.hover = null; this.draw(); }
+      else if (e.pointerType === "mouse") this.setHover(e.offsetX, e.offsetY);
+    }
+  }
+  up(e, cancel) {
+    const p = this.ptr.get(e.pointerId);
+    this.ptr.delete(e.pointerId);
+    if (this.ptr.size < 2) this.pinch = null;
+    if (!this.ptr.size) this.pan = null;
+    if (p && !cancel && !p.moved && p.type !== "mouse" && performance.now() - p.t < 400) {
+      const i = this.idxAt(p.x);
+      if (this.hover === i) this.hover = null; else this.setHover(p.x, p.y);
+      this.draw();
+    }
+  }
+  wheel(e) {
+    e.preventDefault();
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { this.off += e.deltaX / this.barW; this.clamp(); this.draw(); return; }
+    this.zoom(Math.exp(-e.deltaY * 0.0015), e.offsetX);
+  }
+  idxAt(x) {
+    const n = this.bars.length, end = n - 1 + 3 - this.off;
+    const i = Math.round(end + 0.5 - (this.plotW() - x) / this.barW);
+    return i >= 0 && i < n ? i : null;
+  }
+  setHover(x, y) { this.hover = x <= this.plotW() ? this.idxAt(x) : null; this.hy = y; this.draw(); }
+  draw(now) {
+    if (now) { cancelAnimationFrame(this.raf); this.raf = 0; this.paint(); return; }
+    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(); });
+  }
+  paint() {
+    const ctx = this.ctx, W = this.W, H = this.H, cs = getComputedStyle(document.documentElement);
+    const col = (v) => cs.getPropertyValue(v).trim();
+    const C = { bg: col("--surface"), grid: col("--line"), ink: col("--ink"), ink3: col("--ink-3"), up: col("--gain"), down: col("--loss"), acc: col("--accent"), bgS: col("--bg") };
+    ctx.clearRect(0, 0, W, H); ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+    const n = this.bars.length;
+    if (!n) { ctx.fillStyle = C.ink3; ctx.font = this.font(13); ctx.fillText("Kerzen werden geladen …", 12, 24); this.legendText(null); return; }
+    // room at the top for the value bar (two lines on a phone), so no line or price tag hides behind it
+    const axW = this.axisW(), plotW = W - axW, timeH = 22, top = W < 520 ? 46 : 28, plotH = H - timeH - top;
+    const priceH = plotH * 0.8, volTop = top + plotH * 0.82, volH = plotH * 0.18;
+    const bw = this.barW, end = n - 1 + 3 - this.off;
+    const i0 = Math.max(0, Math.floor(end - plotW / bw)), i1 = Math.min(n - 1, Math.ceil(end));
+    const xOf = (i) => plotW - (end - i + 0.5) * bw;
+    let lo = Infinity, hi = -Infinity, vmax = 0;
+    for (let i = i0; i <= i1; i++) { const b = this.bars[i]; lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); vmax = Math.max(vmax, b.v); }
+    if (!(hi > lo)) { hi = hi * 1.01 || 1; lo = lo * 0.99 || 0; }
+    // entry prices close to the visible candles are taken into the price range, far away ones stay outside
+    for (const l of this.lines) { const span = hi - lo; if (l.price > lo - span && l.price < hi + span) { hi = Math.max(hi, l.price); lo = Math.min(lo, l.price); } }
+    const pad = (hi - lo) * 0.08; hi += pad; lo -= pad;
+    const yOf = (p) => top + ((hi - p) / (hi - lo)) * priceH;
+    // grid and price axis
+    const raw = (hi - lo) / 5, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((s) => s >= raw) || raw;
+    ctx.font = this.font(11); ctx.textBaseline = "middle"; ctx.lineWidth = 1;
+    for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) {
+      const y = Math.round(yOf(p)) + 0.5;
+      ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke();
+      ctx.fillStyle = C.ink3; ctx.fillText(this.fmt(p), plotW + 8, y);
+    }
+    // time axis: a label every ~90 px; the date where the day changes
+    const every = Math.max(1, Math.ceil(90 / bw));
+    const day = this.tfMs >= 86400000;
+    const dfmt = (t) => new Date(t).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    const tfmt = (t) => new Date(t).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "center";
+    let lastDay = null;
+    for (let i = i0; i <= i1; i++) {
+      const t = this.bars[i].t, dk = new Date(t).toDateString();
+      if (i % every === 0) {
+        const x = Math.round(xOf(i)) + 0.5;
+        if (x < 20 || x > plotW - 20) { lastDay = dk; continue; }
+        ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + plotH); ctx.stroke();
+        ctx.fillStyle = C.ink3;
+        ctx.fillText(day || dk !== lastDay ? dfmt(t) : tfmt(t), x, H - 6);
+        lastDay = dk;
+      }
+    }
+    ctx.textAlign = "left";
+    // volume and candles
+    const body = Math.max(1, Math.floor(bw * 0.72));
+    for (let i = i0; i <= i1; i++) {
+      const b = this.bars[i], x = xOf(i), up = b.c >= b.o, c = up ? C.up : C.down;
+      if (vmax > 0 && b.v > 0) {
+        const vh = (b.v / vmax) * volH;
+        ctx.globalAlpha = 0.3; ctx.fillStyle = c; ctx.fillRect(Math.round(x - body / 2), volTop + volH - vh, body, vh); ctx.globalAlpha = 1;
+      }
+      const yH = yOf(b.h), yL = yOf(b.l), yO = yOf(b.o), yC = yOf(b.c);
+      ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, yH); ctx.lineTo(Math.round(x) + 0.5, yL); ctx.stroke();
+      ctx.fillStyle = c; ctx.fillRect(Math.round(x - body / 2), Math.min(yO, yC), body, Math.max(1, Math.abs(yC - yO)));
+    }
+    // axis separator
+    ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(plotW + 0.5, 0); ctx.lineTo(plotW + 0.5, H); ctx.stroke();
+    const tag = (y, text, bg, fg) => {
+      if (y < top - 2 || y > top + priceH + 2) return;
+      ctx.font = this.font(11); const w = axW - 4, h = 18;
+      ctx.fillStyle = bg; ctx.fillRect(plotW + 2, y - h / 2, w, h);
+      ctx.fillStyle = fg; ctx.textBaseline = "middle"; ctx.fillText(text, plotW + 7, y); ctx.textBaseline = "alphabetic";
+    };
+    const hline = (p, color, dash) => {
+      const y = Math.round(yOf(p)) + 0.5;
+      if (y < top || y > top + priceH) return null;
+      ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotW, y); ctx.stroke(); ctx.setLineDash([]);
+      return y;
+    };
+    // own and agents' entry prices
+    for (const l of this.lines) {
+      const y = hline(l.price, l.color === "own" ? C.acc : C.ink3, [6, 4]);
+      if (y === null) continue;
+      ctx.font = this.font(11); const txt = l.label, w = ctx.measureText(txt).width + 10;
+      ctx.fillStyle = l.color === "own" ? C.acc : C.ink3; ctx.fillRect(4, y - 9, w, 18);
+      ctx.fillStyle = C.bg; ctx.textBaseline = "middle"; ctx.fillText(txt, 9, y); ctx.textBaseline = "alphabetic";
+      tag(y, this.fmt(l.price), l.color === "own" ? C.acc : C.ink3, C.bg);
+    }
+    // last price
+    const last = this.bars[n - 1], lc = last.c >= last.o ? C.up : C.down;
+    const ly = hline(last.c, lc, [2, 3]);
+    if (ly !== null) tag(ly, this.fmt(last.c), lc, C.bg);
+    // crosshair
+    if (this.hover !== null && this.hover >= i0 && this.hover <= i1) {
+      const x = Math.round(xOf(this.hover)) + 0.5;
+      ctx.strokeStyle = C.ink3; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + plotH); ctx.stroke();
+      if (this.hy !== null && this.hy >= top && this.hy <= top + priceH) {
+        ctx.beginPath(); ctx.moveTo(0, this.hy + 0.5); ctx.lineTo(plotW, this.hy + 0.5); ctx.stroke(); ctx.setLineDash([]);
+        tag(this.hy, this.fmt(hi - ((this.hy - top) / priceH) * (hi - lo)), C.ink, C.bg);
+      }
+      ctx.setLineDash([]);
+      const t = this.bars[this.hover].t, txt = day ? dfmt(t) : `${dfmt(t)} ${tfmt(t)}`;
+      ctx.font = this.font(11); const w = ctx.measureText(txt).width + 12;
+      const bx = Math.max(0, Math.min(plotW - w, x - w / 2));
+      ctx.fillStyle = C.ink; ctx.fillRect(bx, H - timeH + 2, w, timeH - 4);
+      ctx.fillStyle = C.bg; ctx.fillText(txt, bx + 6, H - 7);
+    }
+    this.legendText(this.hover !== null ? this.bars[this.hover] : last, this.hover !== null ? this.bars[this.hover - 1] : this.bars[n - 2]);
+    this.cv.setAttribute("aria-label", `Kerzen-Chart, letzter Kurs ${this.fmt(last.c)}`);
+  }
+  legendText(b, prev) {
+    if (!this.legend) return;
+    if (!b) { this.legend.textContent = ""; return; }
+    const ch = prev ? (b.c / prev.c - 1) * 100 : (b.c / b.o - 1) * 100;
+    const cls = b.c >= b.o ? "gain" : "loss";
+    this.legend.innerHTML = `<span>E <b class="${cls}">${esc(this.fmt(b.o))}</b></span><span>H <b class="${cls}">${esc(this.fmt(b.h))}</b></span><span>T <b class="${cls}">${esc(this.fmt(b.l))}</b></span><span>S <b class="${cls}">${esc(this.fmt(b.c))}</b></span><span class="${clsPnl(ch)}">${esc(signed(ch))} %</span>${b.v > 0 ? `<span>Vol ${esc(qty(b.v))}</span>` : ""}`;
+  }
+}
+
+/* ---------- live chart in "Selbst handeln": history from the API, live from the Bybit stream (crypto) or by asking again ---------- */
+const TFS = [["1", "1m", "1 Minute"], ["5", "5m", "5 Minuten"], ["15", "15m", "15 Minuten"], ["60", "1h", "1 Stunde"], ["240", "4h", "4 Stunden"], ["D", "1D", "1 Tag"]];
+const ch = { sym: null, tf: "15", chart: null, token: 0, ws: null, ping: 0, poll: 0, live: null, source: "", lastMsg: 0, wsFails: 0, err: null, loading: false, bars: 0, tfMs: 900000 };
+const fxClosedNow = () => { const d = new Date(nowMs()); const wd = d.getUTCDay(), h = d.getUTCHours(); return wd === 6 || (wd === 5 && h >= 22) || (wd === 0 && h < 22); };
+const toBar = (a) => ({ t: a[0], o: a[1], h: a[2], l: a[3], c: a[4], v: a[5] });
+function chartStop() {
+  ch.token++;
+  if (ch.ws) { try { ch.ws.close(); } catch {} ch.ws = null; }
+  clearInterval(ch.ping); clearInterval(ch.poll); ch.ping = 0; ch.poll = 0;
+}
+async function chartOpen(sym, tf, force) {
+  if (!sym) return;
+  // already showing and live: nothing to do. After a pause (other area, phone locked) the history is loaded again.
+  if (!force && ch.sym === sym && ch.tf === tf && (ch.loading || ((ch.ws || ch.poll) && ch.bars))) return;
+  chartStop();
+  if (ch.sym !== sym) ch.wsFails = 0;
+  ch.sym = sym; ch.tf = tf; ch.err = null; ch.loading = true; ch.bars = 0;
+  const my = ch.token;
+  if (!ch.chart) ch.chart = new CandleChart($("#chost"), $("#clegend"));
+  ch.chart.setData([], 2, 60000);
+  chartTools();
+  let r = null;
+  try { r = await api({ action: "manual_chart", symbol: sym, tf }); } catch (e) { r = { status: 0, data: { error: "keine Verbindung" } }; }
+  if (my !== ch.token) return;
+  ch.loading = false;
+  if (r.status === 401) { logout("Der Zugangscode wurde nicht akzeptiert."); return; }
+  if (r.status !== 200 || !r.data || !Array.isArray(r.data.candles)) { ch.err = (r.data && r.data.error) || "HTTP " + r.status; chartTools(); return; }
+  const d = r.data;
+  ch.live = d.live; ch.source = d.source; ch.tfMs = d.tf_ms; ch.bars = d.candles.length; ch.lastMsg = Date.now();
+  ch.chart.setData(d.candles.map(toBar), d.precision, d.tf_ms);
+  chartLines(); chartTools(); chartLive();
+}
+function chartLive() {
+  if (!ch.sym || !ch.bars || state.view !== "handeln" || document.hidden || ch.ws || ch.poll) return;
+  if (ch.live && ch.wsFails < 3 && "WebSocket" in window) chartWs();
+  else ch.poll = setInterval(chartPollTick, ch.live ? 5000 : 20000);
+  chartTools();
+}
+function chartWs() {
+  const my = ch.token;
+  let ws;
+  try { ws = new WebSocket(ch.live.url); } catch { ch.wsFails = 3; chartLive(); return; }
+  ch.ws = ws;
+  let got = false;
+  const timer = setTimeout(() => { if (!got) try { ws.close(); } catch {} }, 8000);
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ op: "subscribe", args: ch.live.topics }));
+    ch.ping = setInterval(() => { try { ws.send(JSON.stringify({ op: "ping" })); } catch {} }, 20000);
+  };
+  ws.onmessage = (ev) => {
+    if (my !== ch.token || !ch.chart) return;
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    const topic = String(m.topic || "");
+    if (topic.startsWith("kline.") && Array.isArray(m.data)) {
+      for (const k of m.data) {
+        const b = { t: Number(k.start), o: Number(k.open), h: Number(k.high), l: Number(k.low), c: Number(k.close), v: Number(k.volume) };
+        if ([b.t, b.o, b.h, b.l, b.c].every(Number.isFinite) && b.c > 0) ch.chart.update(b);
+      }
+      got = true; ch.lastMsg = Date.now(); clearTimeout(timer); ch.wsFails = 0;
+    } else if (topic.startsWith("tickers.") && m.data) {
+      const p = Number(m.data.lastPrice);
+      if (p > 0) { ch.chart.tick(p, nowMs()); livePrice(ch.sym, p); got = true; ch.lastMsg = Date.now(); clearTimeout(timer); ch.wsFails = 0; }
+    }
+  };
+  ws.onerror = () => {};
+  ws.onclose = () => {
+    clearTimeout(timer); clearInterval(ch.ping); ch.ping = 0;
+    if (ch.ws === ws) ch.ws = null;
+    if (my !== ch.token) return;
+    if (!got) ch.wsFails++;
+    chartTools();
+    setTimeout(() => { if (my === ch.token) chartLive(); }, ch.wsFails >= 3 ? 0 : 2000);
+  };
+}
+async function chartPollTick() {
+  const my = ch.token;
+  if (document.hidden || state.view !== "handeln") return;
+  let r; try { r = await api({ action: "manual_chart", symbol: ch.sym, tf: ch.tf, limit: 3 }); } catch { return; }
+  if (my !== ch.token || r.status !== 200 || !r.data || !Array.isArray(r.data.candles)) return;
+  for (const a of r.data.candles) ch.chart.update(toBar(a));
+  const last = r.data.candles[r.data.candles.length - 1];
+  if (last) livePrice(ch.sym, last[4]);
+  ch.lastMsg = Date.now(); chartTools();
+}
+/** Live price into the header of the ticket (the quote list refreshes only every 25 s). */
+function livePrice(sym, p) {
+  if (mt.sel !== sym) return;
+  mt.live = { sym, price: p, at: Date.now() };
+  const el = $("#mt-big"); if (el) el.textContent = px(p);
+}
+/** Entry prices of open positions in this market: own ones highlighted, the agents' ones grey. */
+function chartLines() {
+  if (!ch.chart || !state.data) return;
+  const A = manualAgent(state.data);
+  const lines = (state.data.open_positions || []).filter((p) => p.symbol === ch.sym).map((p) => {
+    const own = A && p.agent_id === A.id;
+    const who = own ? "Dein" : String(state.data.agents.find((a) => a.id === p.agent_id)?.name || "Agent").replace(/^Agent\s+/, "").split(" ")[0];
+    return { price: p.entry_price, color: own ? "own" : "agent", label: `${who} ${p.side === "long" ? "Kauf" : "Verkauf"}` };
+  });
+  ch.chart.setLines(lines);
+}
+/** Toolbar state: time frames, live status, error. */
+function chartTools() {
+  const tfEl = $("#ctfs");
+  // the buttons are only rebuilt when the time frame changes, so a tap is never lost during a refresh
+  if (tfEl && tfEl.dataset.tf !== ch.tf) tfEl.dataset.tf = ch.tf, tfEl.innerHTML = TFS.map(([k, l, full]) => `<button type="button" class="tab" data-ctf="${k}" aria-pressed="${ch.tf === k}" title="Kerzen zu je ${full}" aria-label="Kerzen zu je ${full}">${l}</button>`).join("");
+  const st = $("#cstat"); if (!st) return;
+  let dot = "", txt = "";
+  const age = (Date.now() - ch.lastMsg) / 1000;
+  if (ch.err) { dot = "bad"; txt = `Kerzen nicht verfügbar: ${ch.err}`; }
+  else if (ch.loading) { dot = "warn"; txt = "Kerzen werden geladen …"; }
+  else if (ch.ws && age < 15) { dot = "on"; txt = "Live von Bybit"; }
+  else if (ch.ws) { dot = "warn"; txt = "Verbinde mit Bybit …"; }
+  else if (ch.poll && ch.live) { dot = "warn"; txt = "Bybit-Stream nicht erreichbar, Abruf alle 5 s"; }
+  else if (ch.poll) {
+    const lastT = ch.chart?.bars?.length ? ch.chart.bars[ch.chart.bars.length - 1].t : 0;
+    const stale = nowMs() - lastT > ch.tfMs + 20 * 60000;
+    if (stale && fxClosedNow()) { dot = "warn"; txt = "Devisenmarkt geschlossen (Wochenende)"; }
+    else if (stale) { dot = "bad"; txt = `Yahoo liefert seit ${new Date(lastT + ch.tfMs).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} keine neuen Kurse`; }
+    else { dot = "on"; txt = "Yahoo, Abruf alle 20 s, bis 1 min verzögert"; }
+  }
+  st.innerHTML = `<i class="vdot ${dot}" aria-hidden="true"></i><span>${esc(txt)}</span>`;
+}
+setInterval(() => { if (state.view === "handeln" && ch.sym) chartTools(); }, 3000);
+function chartFull(on) {
+  const box = $("#cbox"); if (!box) return;
+  const v = on === undefined ? !box.classList.contains("full") : on;
+  box.classList.toggle("full", v);
+  document.body.style.overflow = v ? "hidden" : "";
+  const b = $("[data-cfull]"); if (b) b.textContent = v ? "Schließen" : "Vollbild";
+  if (ch.chart) setTimeout(() => ch.chart.resize(), 30);
+}
+
 /* ---------- areas of the app ---------- */
 const VIEWS = ["uebersicht", "handeln", "trades", "maerkte", "bybit", "news", "einstellungen"];
 const SECTION_VIEW = { "s-trade": "handeln", "s-capital": "uebersicht", "s-bbsum": "uebersicht", "s-agents": "uebersicht", "s-chart": "uebersicht", "s-pnl": "trades", "s-pos": "trades",
@@ -1550,6 +1954,7 @@ function showView(name) {
     if (window.scrollY > top) window.scrollTo(0, top);
     if (v === "bybit") { if (bb.data) renderBybit(); bbLoad(); }
     if (v === "handeln") { renderTrade(); mtLoad(); }
+    else { chartStop(); chartFull(false); }
   }
 }
 function routeFromHash() {
@@ -1607,6 +2012,7 @@ async function act(body, okTitle) {
 
 function showApp() { $("#gate").hidden = true; $("#app").hidden = false; routeFromHash(); load(); clearInterval(state.timer); state.timer = setInterval(() => { if (!document.hidden) load(); }, POLL_MS); }
 function logout(msg) {
+  chartStop(); chartFull(false);
   store.clear(); clearInterval(state.timer); state.data = null; bb.data = null; bb.err = null;
   $("#app").hidden = true; $("#gate").hidden = false; $("#tok").value = "";
   const e = $("#gate-err"); if (msg) { e.textContent = msg; e.hidden = false; } else e.hidden = true;
@@ -1628,6 +2034,11 @@ document.addEventListener("click", (ev) => {
   if (t.dataset.agentStart) return act({ action: "start", agent_id: t.dataset.agentStart }, "Agent gestartet");
   if (t.dataset.agentStop) return act({ action: "stop", agent_id: t.dataset.agentStop }, "Agent gestoppt");
   if (t.dataset.approve) return act({ action: "approve_agent", agent_id: t.dataset.approve, start: t.dataset.start === "1" }, "Agent freigegeben");
+  // candle chart
+  if (t.dataset.ctf) { ch.tf = t.dataset.ctf; chartOpen(ch.sym || mt.sel, ch.tf, true); return; }
+  if (t.dataset.cz) { if (!ch.chart) return; if (t.dataset.cz === "now") ch.chart.reset(); else ch.chart.zoom(t.dataset.cz === "in" ? 1.4 : 1 / 1.4); return; }
+  if (t.dataset.cfull) { chartFull(); return; }
+  if (t.dataset.chartSym) { mt.sel = t.dataset.chartSym; mt.confirm = null; location.hash = "#handeln"; return; }
   // own trading
   if (t.dataset.mtSel) { mt.sel = t.dataset.mtSel; mt.confirm = null; renderTrade(); mtDetail(); return; }
   if (t.dataset.mtSide) { mt.side = t.dataset.mtSide; mt.confirm = null; renderTrade(); return; }
@@ -1673,7 +2084,8 @@ $("#gate-form").addEventListener("submit", async (ev) => {
   } catch { e.textContent = "Keine Verbindung zur Schnittstelle. Prüfe dein Netz und versuche es erneut."; e.hidden = false; }
   if (b) b.disabled = false;
 });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && store.get()) load(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) chartStop(); else if (store.get()) load(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#cbox")?.classList.contains("full")) chartFull(false); });
 setInterval(tickStrip, 1000);
 
 if (store.get()) showApp(); else $("#gate").hidden = false;

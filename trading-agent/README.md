@@ -13,7 +13,7 @@ Handelsagenten, die rund um die Uhr Krypto- und Devisenkurse auswerten, Trades i
 
 - **trend-tick** (alle 5 Minuten): die Trend-Agenten Beta (Momentum-Abstimmung 30/90/180 Tage) und Gamma (Turtle-Ausbruch 55/20 Tage) entscheiden einmal je abgeschlossener Tageskerze über BTC, ETH und SOL. Seit 4. November 2026 je 5.000 Rubel Startkapital (61,22 USDT), jeder Kauf mindestens 6 USDT (Bybit-Minimum 5 USDT), Rückgangs-Limit 10 %, Nachrichten und Termine als Schutzschicht. Details: [docs/REGELBUCH.md](docs/REGELBUCH.md).
 - **trend-tick** führt seit 4. November 2026 auch Agent Delta: dieselbe Momentum-Regel auf sechs Währungspaaren (Yahoo-Kurse), in beide Richtungen, ohne Hebel, 5.000 Rubel. Im Test brachte das etwa null.
-- **Selbst handeln**: eigenes Übungskonto des Nutzers mit 5.000 Rubel in der App. Kauf von BTC, ETH, SOL, Gold-Token XAUT; Kauf und Verkauf von EUR/USD, GBP/USD, USD/JPY. Echte Kurse und Kosten, Papier-Buchung über dashboard-api.
+- **Selbst handeln**: eigenes Übungskonto des Nutzers mit 5.000 Rubel in der App. Kauf von BTC, ETH, SOL, Gold-Token XAUT; Kauf und Verkauf von EUR/USD, GBP/USD, USD/JPY. Echte Kurse und Kosten, Papier-Buchung über dashboard-api. Mit Live-Kerzen-Chart (1 Minute bis 1 Tag, Krypto live über den öffentlichen Bybit-Datenstrom, Währungen alle 20 s).
 - **agent-tick** (jede Minute): holt geschlossene 1-Minuten-Kerzen (BTC, ETH, SOL über Bybit, EUR/USD über Yahoo) und bewertet sie für die Marktübersicht. Der Minuten-Agent Alpha, der damit gehandelt hat, ist seit 3. November 2026 im Ruhestand.
 - **bybit-demo** (alle 30 Sekunden): spiegelt neue Krypto-Käufe und -Verkäufe der Agenten auf das Bybit-Demo-Konto, speichert Ausführungen, Gebühren, Preisabweichung und Kontostand.
 - **news-scan** (alle 10 Minuten): liest öffentliche Nachrichten-Feeds und bewertet Schlagzeilen mit einer Stichwort-Heuristik. Nach wichtigen Meldungen kaufen die Agenten 30 Minuten lang nichts Neues.
@@ -67,7 +67,7 @@ Browser-Tests der App (Playwright mit Chromium):
 node tests/app.test.cjs
 ```
 
-Stand 5. November 2026: 66 Tests der Funktionen, der Backtest-Selbsttest und 137 Tests der App, alle bestanden.
+Stand 5. November 2026: 69 Tests der Funktionen, der Backtest-Selbsttest und 166 Tests der App (darunter der Chart mit simuliertem Bybit-Datenstrom), alle bestanden.
 
 ## Regeln für Änderungen
 

@@ -52,6 +52,7 @@ function serve() {
         return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ server_time: new Date().toISOString(), trades: db.slice(body.offset, body.offset + body.limit), total: db.length }) });
       }
       if (manualReply) { const r = manualReply(body); if (r) return route.fulfill({ status: r.status, headers: CORS, contentType: "application/json", body: JSON.stringify(r.body) }); }
+      if (body.action === "manual_chart") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify(fx.candles(body.symbol, body.tf, body.limit)) });
       if (body.action === "manual_quote") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify(fx.quotes(body.symbol)) });
       if (body.action === "manual_open") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true, position_id: 999, symbol: body.symbol, side: body.side, entry_price: 70314.1, qty: 0.0001, notional_usd: body.amount_rub / 81.6699, fee_usd: 0.012, amount_rub: body.amount_rub, usdrub: 81.6699 }) });
       if (body.action === "manual_close") return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true, position_id: body.position_id, exit_price: 70280, fee_usd: 0.012, pnl_usd: 0.0123, pnl_rub: 1.0045, usdrub: 81.6699 }) });
@@ -67,6 +68,23 @@ function serve() {
       return route.fulfill({ status: 200, headers: CORS, contentType: "application/json", body: JSON.stringify({ ok: true, enabled: body.enabled }) });
     });
     await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    // Bybit public stream: answered here, never the real exchange. opts.ws === "fail" simulates a blocked connection.
+    const wsLog = []; let wsSock = null;
+    await page.routeWebSocket("wss://stream.bybit.com/v5/public/spot", (ws) => {
+      if (opts.ws === "fail") { ws.close(); return; }
+      wsSock = ws;
+      ws.onMessage((m) => {
+        const msg = JSON.parse(String(m)); wsLog.push(msg);
+        if (msg.op === "subscribe") {
+          ws.send(JSON.stringify({ success: true, op: "subscribe", ret_msg: "" }));
+          const kt = msg.args.find((a) => a.startsWith("kline.")), [, iv, sym] = kt.split(".");
+          const ms = { "1": 60000, "5": 300000, "15": 900000, "60": 3600000, "240": 14400000, D: 86400000 }[iv];
+          const start = Math.floor(Date.now() / ms) * ms;
+          ws.send(JSON.stringify({ topic: kt, type: "snapshot", data: [{ start, end: start + ms - 1, interval: iv, open: "70290", close: "70310.5", high: "70333", low: "70280", volume: "12.5", turnover: "0", confirm: false, timestamp: Date.now() }] }));
+          ws.send(JSON.stringify({ topic: `tickers.${sym}`, type: "snapshot", data: { symbol: sym, lastPrice: "70311.2" } }));
+        }
+      });
+    });
     await page.goto(BASE + "/index.html" + (opts.hash || ""));
     check(label + ": gate visible", await page.locator("#gate").isVisible());
     await page.fill("#tok", "wrong-token-wrong-token-1234");
@@ -77,7 +95,7 @@ function serve() {
     await page.click("#gate-form button[type=submit]");
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForSelector(".mrow", { state: "attached" });
-    return { page, ctx, errors, dialogs, calls, bbCalls, setScenario: (s) => (current = s), setTrades: (f) => (tradesOverride = f), setBybit: (f) => (bbCurrent = f), setBbReply: (f) => (bbReply = f), setManualReply: (f) => (manualReply = f) };
+    return { page, ctx, errors, dialogs, calls, bbCalls, setScenario: (s) => (current = s), setTrades: (f) => (tradesOverride = f), setBybit: (f) => (bbCurrent = f), setBbReply: (f) => (bbReply = f), setManualReply: (f) => (manualReply = f), wsLog, wsSend: (o) => wsSock && wsSock.send(JSON.stringify(o)) };
   }
   // switch area through the navigation bar, like a user
   async function go(page, v) {
@@ -311,9 +329,8 @@ function serve() {
   await go(r.page, "handeln");
   await r.page.waitForFunction(() => document.querySelectorAll("#mt-list .mt-m").length === 7 && /70\.300/.test(document.querySelector("#mt-list").textContent));
   check("own: navigation opens the area, account tiles in rubles", /Dein Kapital/.test(await r.page.textContent("#mt-account")) && /Start 5\.000 ₽/.test(await r.page.textContent("#mt-account")));
-  check("own: seven markets, Bitcoin selected first, GBP/USD marked closed", (await r.page.getAttribute('[data-mt-sel="BTCUSDT"]', "aria-pressed")) === "true" && /geschlossen/.test(await r.page.textContent('[data-mt-sel="GBPUSD=X"]')));
-  await r.page.waitForFunction(() => document.querySelector("#mt-chart svg"));
-  check("own: crypto offers buying only, with chart", (await r.page.locator("#mt-side .sidesw").count()) === 0 && /nur kaufen/.test(await r.page.textContent("#mt-side")));
+  check("own: seven markets, Bitcoin selected first, GBP/USD marked without price", (await r.page.getAttribute('[data-mt-sel="BTCUSDT"]', "aria-pressed")) === "true" && /geschlossen|keine Kurse/.test(await r.page.textContent('[data-mt-sel="GBPUSD=X"]')));
+  check("own: crypto offers buying only", (await r.page.locator("#mt-side .sidesw").count()) === 0 && /nur kaufen/.test(await r.page.textContent("#mt-side")));
   check("own: action disabled without amount", await r.page.locator("[data-mt-ask]").isDisabled());
   await r.page.fill("#mt-amt", "400");
   check("own: below minimum is explained, button disabled", /Mindestens 495 ₽/.test(await r.page.textContent("#mt-prev")) && await r.page.locator("[data-mt-ask]").isDisabled());
@@ -345,7 +362,8 @@ function serve() {
   // closed market
   await r.page.click('[data-mt-sel="GBPUSD=X"]');
   await r.page.fill("#mt-amt", "1000");
-  check("own: closed currency market blocks the trade with a reason", /geschlossen/.test(await r.page.textContent("#mt-prev")) && await r.page.locator("[data-mt-ask]").isDisabled());
+  const staleTxt = await r.page.textContent("#mt-prev");
+  check("own: currency without a live price blocks the trade and says why (weekend or gap at Yahoo)", (/Wochenende/.test(staleTxt) || /Yahoo liefert seit/.test(staleTxt)) && await r.page.locator("[data-mt-ask]").isDisabled(), staleTxt);
   // refusal from the server is shown
   r.setManualReply((b) => (b.action === "manual_open" ? { status: 422, body: { error: "Der Kill-Switch ist an: keine neuen Trades." } } : null));
   await r.page.click('[data-mt-sel="ETHUSDT"]'); await r.page.fill("#mt-amt", "800");
@@ -374,11 +392,90 @@ function serve() {
   check("own: no JS errors", r.errors.length === 0, r.errors.join(" | "));
   await r.ctx.close();
   r = await run("own-dark", fx.own, { width: 1280, height: 900 }, "dark", { hash: "#handeln" });
-  await r.page.waitForFunction(() => document.querySelectorAll("#mt-list .mt-m").length === 7 && document.querySelector("#mt-chart svg"));
+  await r.page.waitForFunction(() => document.querySelectorAll("#mt-list .mt-m").length === 7 && ch.bars > 0);
   await r.page.click('[data-mt-sel="USDJPY=X"]'); await r.page.click('[data-mt-side="short"]'); await r.page.fill("#mt-amt", "1500");
   await r.page.screenshot({ path: path.join(SHOTS, "own-trading-desktop-dark.png"), fullPage: true });
   check("own-dark: opens directly from the link #handeln", !(await r.page.locator('.view[data-view="handeln"]').isHidden()));
   check("own-dark: no JS errors", r.errors.length === 0, r.errors.join(" | "));
+  await r.ctx.close();
+
+  // live candle chart ("wie bei Bybit"): own canvas drawing, live via the (simulated) Bybit stream, currencies by asking again
+  r = await run("chart", fx.own, { width: 390, height: 844 }, "light", { hash: "#handeln" });
+  await r.page.waitForFunction(() => ch.bars > 0 && ch.chart && ch.chart.bars.length >= 400);
+  check("chart: history requested for Bitcoin, 15 min by default", r.calls.some((c) => c.action === "manual_chart" && c.symbol === "BTCUSDT" && c.tf === "15"));
+  const cvBox = await r.page.locator("#chost canvas").boundingBox();
+  check("chart: canvas fills the box on a phone", cvBox && cvBox.width >= 300 && cvBox.height >= 300, JSON.stringify(cvBox));
+  const painted = await r.page.evaluate(() => { const c = document.querySelector("#chost canvas"), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let g = 0, red = 0; for (let i = 0; i < d.length; i += 4) { if (d[i + 1] > 100 && d[i] < 80 && d[i + 2] < 110) g++; if (d[i] > 150 && d[i + 1] < 80) red++; } return { g, red }; });
+  check("chart: green and red candles are drawn", painted.g > 500 && painted.red > 500, JSON.stringify(painted));
+  await r.page.waitForFunction(() => /Live von Bybit/.test(document.querySelector("#cstat").textContent));
+  check("chart: subscribed to kline and ticker of Bitcoin", r.wsLog.some((m) => m.op === "subscribe" && m.args.includes("kline.15.BTCUSDT") && m.args.includes("tickers.BTCUSDT")));
+  check("chart: live status and price from the stream in the header", /70\.311,20/.test(await r.page.textContent("#mt-big")), await r.page.textContent("#mt-big"));
+  check("chart: legend shows open, high, low, close of the running candle", /E\s*70\.290,00/.test(await r.page.textContent("#clegend")) && /S\s*70\.311,20/.test(await r.page.textContent("#clegend")), await r.page.textContent("#clegend"));
+  const n0 = await r.page.evaluate(() => ch.chart.bars.length);
+  // a new candle starts: kline of the next slot
+  r.wsSend({ topic: "kline.15.BTCUSDT", type: "snapshot", data: [{ start: Math.floor(Date.now() / 900000) * 900000 + 900000, open: "70311", close: "70400", high: "70410", low: "70300", volume: "1", confirm: false }] });
+  await r.page.waitForFunction((n) => ch.chart.bars.length === n + 1, n0);
+  check("chart: a new candle from the stream is appended", true);
+  // own entry price as a line
+  check("chart: own Bitcoin purchase shown as entry line", await r.page.evaluate(() => ch.chart.lines.some((l) => l.label === "Dein Kauf" && Math.abs(l.price - 70012.3) < 0.01)));
+  // scroll back in time with the mouse, zoom with the wheel, back to the newest candle
+  await r.page.evaluate(() => document.querySelector("#chost").scrollIntoView({ block: "center" }));
+  await r.page.waitForTimeout(100);
+  const cb = await r.page.locator("#chost canvas").boundingBox();
+  await r.page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2); await r.page.mouse.down();
+  await r.page.mouse.move(cb.x + cb.width / 2 + 120, cb.y + cb.height / 2, { steps: 6 }); await r.page.mouse.up();
+  const offAfter = await r.page.evaluate(() => ch.chart.off);
+  check("chart: dragging scrolls back in time", offAfter > 5, String(offAfter));
+  const w0 = await r.page.evaluate(() => ch.chart.barW);
+  await r.page.mouse.move(cb.x + cb.width / 2, cb.y + 100); await r.page.mouse.wheel(0, -300);
+  await r.page.waitForTimeout(100);
+  check("chart: mouse wheel zooms in", (await r.page.evaluate(() => ch.chart.barW)) > w0);
+  check("chart: hovering shows the values of that candle", await r.page.evaluate(() => ch.chart.hover !== null && ch.chart.hover < ch.chart.bars.length - 1));
+  await r.page.click('[data-cz="now"]');
+  check("chart: 'Neueste' jumps back to the current candle", (await r.page.evaluate(() => ch.chart.off)) === 0);
+  // time frame
+  await r.page.click('[data-ctf="60"]');
+  await r.page.waitForFunction(() => ch.tf === "60" && ch.bars > 0 && /Live/.test(document.querySelector("#cstat").textContent));
+  check("chart: time frame 1 h loads hourly candles and subscribes again", r.calls.some((c) => c.action === "manual_chart" && c.tf === "60") && r.wsLog.some((m) => m.op === "subscribe" && m.args.includes("kline.60.BTCUSDT")) && (await r.page.getAttribute('[data-ctf="60"]', "aria-pressed")) === "true");
+  // full screen
+  await r.page.click("[data-cfull]");
+  await r.page.waitForTimeout(250);
+  const fullBox = await r.page.locator("#chost canvas").boundingBox();
+  check("chart: full screen uses the whole phone screen", (await r.page.getAttribute("#cbox", "class")).includes("full") && fullBox.height > 600, JSON.stringify(fullBox));
+  await r.page.screenshot({ path: path.join(SHOTS, "chart-fullscreen-phone.png") });
+  await r.page.keyboard.press("Escape");
+  check("chart: Escape leaves full screen", !(await r.page.getAttribute("#cbox", "class")).includes("full"));
+  // currency: no stream, asking again
+  await r.page.click('[data-mt-sel="EURUSD=X"]');
+  await r.page.waitForFunction(() => ch.sym === "EURUSD=X" && ch.bars > 0);
+  check("chart: currency pair without stream, refreshed by asking the API", await r.page.evaluate(() => ch.ws === null && !!ch.poll) && /Yahoo/.test(await r.page.textContent("#cstat")), await r.page.textContent("#cstat"));
+  await r.page.evaluate(() => chartPollTick());
+  await r.page.waitForTimeout(150);
+  check("chart: refresh asks only for the last candles", r.calls.some((c) => c.action === "manual_chart" && c.symbol === "EURUSD=X" && c.limit === 3));
+  check("chart: currency prices with 5 decimals", /1,12\d{3}/.test(await r.page.textContent("#clegend")), await r.page.textContent("#clegend"));
+  check("chart: own EUR/USD short shown as line", await r.page.evaluate(() => ch.chart.lines.some((l) => l.label === "Dein Verkauf")));
+  await r.page.evaluate(() => document.querySelector("#cbox").scrollIntoView({ block: "start" })); await r.page.waitForTimeout(150);
+  await r.page.screenshot({ path: path.join(SHOTS, "chart-phone.png"), fullPage: false });
+  await r.page.click('[data-mt-sel="BTCUSDT"]');
+  await r.page.waitForFunction(() => ch.sym === "BTCUSDT" && !!ch.ws);
+  // leaving the area stops the live connection
+  await go(r.page, "maerkte");
+  check("chart: leaving the area closes the live connection", await r.page.evaluate(() => ch.ws === null && !ch.poll));
+  await r.page.click('[data-chart-sym="ETHUSDT"]');
+  await r.page.waitForFunction(() => !document.querySelector('.view[data-view="handeln"]').hidden && ch.sym === "ETHUSDT" && ch.bars > 0);
+  check("chart: 'Chart' in the markets area opens Ethereum", (await r.page.getAttribute('[data-mt-sel="ETHUSDT"]', "aria-pressed")) === "true");
+  check("chart: no horizontal overflow on phone", await noOverflow(r.page));
+  check("chart: no JS errors", r.errors.length === 0, r.errors.join(" | "));
+  await r.ctx.close();
+
+  // stream blocked (e.g. network): falls back to asking every 5 s
+  r = await run("chart-fallback", fx.own, { width: 1280, height: 900 }, "dark", { hash: "#handeln", ws: "fail" });
+  await r.page.waitForFunction(() => /nicht erreichbar/.test(document.querySelector("#cstat").textContent), null, { timeout: 20000 });
+  check("chart-fallback: blocked stream falls back to asking every 5 s", await r.page.evaluate(() => !!ch.poll && ch.wsFails >= 3));
+  await r.page.evaluate(() => document.querySelector("#mt-ticket").scrollIntoView({ block: "start" })); await r.page.waitForTimeout(150);
+  await r.page.screenshot({ path: path.join(SHOTS, "chart-desktop-dark.png") });
+  check("chart-fallback: no JS errors", r.errors.length === 0, r.errors.join(" | "));
   await r.ctx.close();
 
   await browser.close();

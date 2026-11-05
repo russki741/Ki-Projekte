@@ -213,3 +213,26 @@ function quotes(symbol) {
   return { server_time: iso(t), usdrub: 81.6699, kill_switch: false, markets_enabled: { crypto: true, forex: true }, quotes: symbol ? all.filter((q) => q.symbol === symbol) : all };
 }
 module.exports = { empty: empty3, busy: busy3, many, trend, own, quotes };
+
+/** Candles as returned by dashboard-api manual_chart (deterministic walk around the quote price, last bar = running bar). */
+const TF_MS = { "1": 60000, "5": 300000, "15": 900000, "60": 3600000, "240": 14400000, "D": 86400000 };
+function candles(symbol, tf, limit) {
+  const t = now(), ms = TF_MS[tf] || 900000, N = 400;
+  const q = quotes().quotes.find((x) => x.symbol === symbol) || { mid: 100, market: "crypto" };
+  const fx_ = q.market === "forex";
+  // the same 400 bars for every request (a refresh asks only for the last ones), ending at the current quote
+  let seed = symbol.length * 7 + ms / 60000, p = 1;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const last = Math.floor(t / ms) * ms, raw = [];
+  for (let i = N - 1; i >= 0; i--) {
+    const o = p, c = o * (1 + (rnd() - 0.5) * 0.004), h = Math.max(o, c) * (1 + rnd() * 0.0015), l = Math.min(o, c) * (1 - rnd() * 0.0015);
+    raw.push([last - i * ms, o, h, l, c, fx_ ? 0 : Math.round(rnd() * 300) / 10]);
+    p = c;
+  }
+  const k = q.mid / raw[N - 1][4];
+  const out = raw.map((b) => [b[0], b[1] * k, b[2] * k, b[3] * k, b[4] * k, b[5]]).slice(-(limit || N));
+  return { server_time: iso(t), symbol, name: q.name, market: q.market, tf, tf_ms: ms, source: fx_ ? "yahoo" : "bybit", delayed: fx_,
+    precision: fx_ ? (q.mid > 20 ? 3 : 5) : 2, candles: out,
+    live: fx_ ? null : { url: "wss://stream.bybit.com/v5/public/spot", topics: [`kline.${tf}.${symbol}`, `tickers.${symbol}`] } };
+}
+module.exports.candles = candles;

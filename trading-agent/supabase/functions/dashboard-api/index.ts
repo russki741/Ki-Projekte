@@ -4,8 +4,15 @@
 // Writes are limited to: agent status, kill switch, a few settings, 'control' notifications and the user's OWN paper trades
 // ("Selbst handeln": actions manual_quote, manual_open, manual_close on the account with config.engine = 'manual') in schema agent_core.
 // Own trades are paper positions at live public prices (Bybit spot ticker, Yahoo chart) with the same costs as the agents.
+// manual_chart: candles for the live chart in the app (Bybit spot klines, Yahoo chart); live updates come from the Bybit
+// WebSocket in the browser (crypto) or by asking again (currencies).
+// Second credential: header x-agent-secret (Vault agent_cron_secret, server side only) may call the two read-only market
+// data actions manual_quote and manual_chart, for health checks from the database. Everything else needs the dashboard token.
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
-import { COSTS, type Market, MARKETS, marketOf, MIN_USD, parseYahooChart, plan, type Quote, quoteFrom, roundTripPct, settleClose, type Side } from "./manual.ts";
+import {
+  type Bar, COSTS, type Market, MARKETS, marketOf, MIN_USD, parseBybitKlines, parseYahooBars, parseYahooChart, plan, precisionOf, type Quote, quoteFrom,
+  roundTripPct, settleClose, type Side, TF,
+} from "./manual.ts";
 
 const ALLOWED_ORIGINS = new Set(["https://derus13.github.io", "https://russki741.github.io"]);
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -225,6 +232,37 @@ async function manual(sql: any, body: any): Promise<{ status: number; body: unkn
     return { status: 200, body: { server_time: new Date().toISOString(), usdrub, kill_switch: s.kill_switch, markets_enabled: s.markets_enabled, quotes: rows } };
   }
 
+  if (body.action === "manual_chart") {
+    const m = marketOf(body.symbol);
+    const tfKey = String(body.tf ?? "15");
+    const tf = TF[tfKey];
+    if (!m || !tf) return { status: 400, body: { error: "symbol or tf not allowed" } };
+    const limit = Number.isInteger(body.limit) && body.limit >= 2 && body.limit <= 500 ? body.limit : 400;
+    let bars: Bar[];
+    try {
+      if (m.cls === "crypto") {
+        const k = await fetchJson(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${m.symbol}&interval=${tf.bybit}&limit=${limit}`);
+        if (k?.retCode !== 0) throw new Error(`Bybit ${k?.retMsg ?? ""}`.trim());
+        bars = parseBybitKlines(k.result?.list);
+      } else {
+        const now = Date.now();
+        // a short request (live update) only needs the last hours; the first load gets enough history for a full chart
+        const back = limit <= 10 ? Math.max(tf.ms * 12, 6 * 3_600_000) : tf.lookbackMs;
+        const y = await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(m.symbol)}?interval=${tf.yahoo}&period1=${Math.floor((now - back) / 1000)}&period2=${Math.floor(now / 1000)}`, UA);
+        bars = parseYahooBars(y, tf.ms);
+      }
+    } catch (e) {
+      return { status: 503, body: { error: `Keine Kerzen: ${msg(e).slice(0, 80)}` } };
+    }
+    bars = bars.slice(-limit);
+    const last = bars[bars.length - 1];
+    return { status: 200, body: {
+      server_time: new Date().toISOString(), symbol: m.symbol, name: m.name, market: m.cls, tf: tfKey, tf_ms: tf.ms, source: m.cls === "crypto" ? "bybit" : "yahoo",
+      delayed: m.cls === "forex", precision: precisionOf(m, last ? last[4] : 1), candles: bars,
+      live: m.cls === "crypto" ? { url: "wss://stream.bybit.com/v5/public/spot", topics: [`kline.${tf.bybit}.${m.symbol}`, `tickers.${m.symbol}`] } : null,
+    } };
+  }
+
   if (body.action === "manual_open") {
     const m = marketOf(body.symbol);
     const side = body.side as Side;
@@ -360,13 +398,24 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
   if (req.method !== "POST") return json(req, { error: "method not allowed" }, 405);
   const token = req.headers.get("x-dashboard-token");
-  if (!token || token.length < 20 || token.length > 200) return json(req, { error: "unauthorized" }, 401);
+  const agentKey = req.headers.get("x-agent-secret");
+  const tokenOk = !!token && token.length >= 20 && token.length <= 200;
+  const keyOk = !!agentKey && agentKey.length >= 20 && agentKey.length <= 200;
+  if (!tokenOk && !keyOk) return json(req, { error: "unauthorized" }, 401);
 
   const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, idle_timeout: 5, connect_timeout: 10, prepare: false });
   try {
-    const [secret] = await sql`select decrypted_secret from vault.decrypted_secrets where name = 'dashboard_token_sha256'`;
-    if (!secret) return json(req, { error: "dashboard token not configured" }, 503);
-    if (!safeEqual(await sha256hex(token), secret.decrypted_secret)) return json(req, { error: "unauthorized" }, 401);
+    let role: "user" | "server" | null = null;
+    if (tokenOk) {
+      const [secret] = await sql`select decrypted_secret from vault.decrypted_secrets where name = 'dashboard_token_sha256'`;
+      if (!secret) return json(req, { error: "dashboard token not configured" }, 503);
+      if (safeEqual(await sha256hex(token!), secret.decrypted_secret)) role = "user";
+    }
+    if (!role && keyOk) {
+      const [k] = await sql`select decrypted_secret from vault.decrypted_secrets where name = 'agent_cron_secret'`;
+      if (k && safeEqual(agentKey!, k.decrypted_secret)) role = "server";
+    }
+    if (!role) return json(req, { error: "unauthorized" }, 401);
     const raw = await req.text();
     if (raw.length > 10_000) return json(req, { error: "body too large" }, 413);
     let body: any = {};
@@ -375,6 +424,7 @@ Deno.serve(async (req) => {
     } catch {
       return json(req, { error: "bad json" }, 400);
     }
+    if (role === "server" && body.action !== "manual_quote" && body.action !== "manual_chart") return json(req, { error: "server key: read-only market data only" }, 403);
     if (body.action === undefined || body.action === "overview") return json(req, await overview(sql, body.lite === true));
     if (body.action === "trades") {
       const r = await tradesPage(sql, body);

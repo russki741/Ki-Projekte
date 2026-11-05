@@ -78,12 +78,22 @@ agent-tick sammelt jede Minute die Kerzen der Märkte von Minuten-Agenten (BTC, 
 | bybit-demo | 6 | Spiegeln auf Bybit-Demo, Kontostand, Selbsttest | Zeitplan, alle 30 s |
 | news-scan | 1 | Nachrichten lesen und bewerten | Zeitplan, alle 10 Min |
 | probe | 3 | Datenquellen prüfen (alte Tabelle `trading_sim`) | Zeitplan, 1 bzw. 5 Min |
-| dashboard-api | 8 | Daten und Steuerung für die App, zählt nur ab `stats_since`; eigene Papier-Trades (`manual_quote`, `manual_open`, `manual_close`) | App |
+| dashboard-api | 9 | Daten und Steuerung für die App, zählt nur ab `stats_since`; eigene Papier-Trades (`manual_quote`, `manual_open`, `manual_close`); Kerzen für den Live-Chart (`manual_chart`) | App |
 | bybit-view | 4 | Daten und Schalter für den Bereich Bybit-Demo, zählt nur ab `stats_since` | App |
 | backtest | 1 | Strategie auf gespeicherter 1-Min-Historie nachspielen | auf Abruf |
 | strategy-lab | 5 | Bekannte Strategien, Regelbuch und Mehrmarkt-Studie (Krypto, Rohstoffe, Währungen; kurze und lange Varianten) testen | auf Abruf |
 
-Alle Funktionen haben `verify_jwt = false` und prüfen selbst: die Zeitplan-Funktionen den Header `x-agent-secret`, die App-Funktionen den Header `x-dashboard-token`.
+Alle Funktionen haben `verify_jwt = false` und prüfen selbst: die Zeitplan-Funktionen den Header `x-agent-secret`, die App-Funktionen den Header `x-dashboard-token`. Ausnahme: dashboard-api nimmt `x-agent-secret` auch an, aber nur für die zwei reinen Marktdaten-Aktionen `manual_quote` und `manual_chart` (für Prüfungen aus der Datenbank per pg_net); alles andere antwortet dann mit 403.
+
+## Live-Chart in der App
+
+Der Kerzen-Chart im Bereich „Selbst handeln“ ist selbst gezeichnet (Canvas, keine fremde Bibliothek, nichts wird von anderen Servern nachgeladen).
+
+1. Verlauf: die App fragt `manual_chart` mit Markt und Zeiteinheit (1m, 5m, 15m, 1h, 4h, 1D) und bekommt bis zu 400 Kerzen. Krypto von Bybit (`/v5/market/kline`), Währungen von Yahoo (4-Stunden-Kerzen aus Stundenkerzen zusammengesetzt).
+2. Live, Krypto: der Browser verbindet sich direkt mit dem öffentlichen Bybit-Datenstrom `wss://stream.bybit.com/v5/public/spot` (Themen `kline.<Zeiteinheit>.<Symbol>` und `tickers.<Symbol>`, Ping alle 20 s). Kommt nach drei Versuchen keine Verbindung zustande, fragt die App stattdessen alle 5 Sekunden `manual_chart` mit `limit: 3`.
+3. Live, Währungen: kein Datenstrom; die App fragt alle 20 Sekunden die letzten Kerzen. Yahoo liefert bis etwa 1 Minute verzögert.
+4. Die Verbindung wird beendet, sobald der Bereich verlassen oder das Handy gesperrt wird, und beim Zurückkommen neu aufgebaut (Verlauf wird neu geladen).
+5. Gestrichelte Linien zeigen die Einstiegskurse offener Positionen in diesem Markt: eigene farbig, die der Agenten grau.
 
 ## Zeitpläne (pg_cron)
 

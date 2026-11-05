@@ -86,3 +86,58 @@ export function parseYahooChart(body: any): { price: number; at: number; closes:
   if (!(price > 0) || !Number.isFinite(at)) return null;
   return { price, at, closes };
 }
+
+// ---------- candles for the live chart in the app (public market data) ----------
+
+export type Bar = [number, number, number, number, number, number]; // [open time ms, open, high, low, close, volume]
+/**
+ * Chart time frames. Crypto: Bybit spot klines (the WebSocket stream uses the same interval names).
+ * Currencies: Yahoo chart API, fetched by time window; 4 h is built from 1 h bars (Yahoo has no 4 h interval).
+ */
+export const TF: Record<string, { ms: number; bybit: string; yahoo: string; lookbackMs: number; agg: number }> = {
+  "1": { ms: 60_000, bybit: "1", yahoo: "1m", lookbackMs: 2 * 86_400_000, agg: 1 },
+  "5": { ms: 300_000, bybit: "5", yahoo: "5m", lookbackMs: 6 * 86_400_000, agg: 1 },
+  "15": { ms: 900_000, bybit: "15", yahoo: "15m", lookbackMs: 12 * 86_400_000, agg: 1 },
+  "60": { ms: 3_600_000, bybit: "60", yahoo: "60m", lookbackMs: 45 * 86_400_000, agg: 1 },
+  "240": { ms: 14_400_000, bybit: "240", yahoo: "60m", lookbackMs: 170 * 86_400_000, agg: 4 },
+  "D": { ms: 86_400_000, bybit: "D", yahoo: "1d", lookbackMs: 730 * 86_400_000, agg: 1 },
+};
+/** Decimals for the price axis: currency pairs like brokers show them (JPY 3, others 5), crypto by price size. */
+export function precisionOf(m: Market, price: number): number {
+  if (m.cls === "forex") return price >= 20 ? 3 : 5;
+  return price >= 100 ? 2 : price >= 1 ? 4 : 6;
+}
+/** Bybit kline list (newest first, strings) -> bars ascending. The newest bar is the running one. */
+export function parseBybitKlines(list: unknown): Bar[] {
+  if (!Array.isArray(list)) return [];
+  const out: Bar[] = [];
+  for (const x of list) {
+    if (!Array.isArray(x)) continue;
+    const b = [0, 1, 2, 3, 4, 5].map((i) => Number(x[i])) as Bar;
+    if (b.every(Number.isFinite) && b[1] > 0 && b[2] > 0 && b[3] > 0 && b[4] > 0) out.push(b);
+  }
+  return out.sort((a, b) => a[0] - b[0]);
+}
+/**
+ * Yahoo chart (any interval) -> bars ascending on the grid of the time frame. Bars of the same slot are merged
+ * (first open, highest high, lowest low, last close, summed volume): this builds 4 h bars from 1 h bars and also folds
+ * Yahoo's extra "live" row into the running bar. Daily bars are keyed by their UTC day (summer days start 23:00 UTC).
+ */
+export function parseYahooBars(body: any, slotMs: number): Bar[] {
+  const r = body?.chart?.result?.[0];
+  if (!r) return [];
+  const t: number[] = r.timestamp ?? [], q = r.indicators?.quote?.[0] ?? {};
+  const by = new Map<number, Bar>();
+  for (let i = 0; i < t.length; i++) {
+    const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+    if (![o, h, l, c].every((x) => typeof x === "number" && Number.isFinite(x) && x > 0)) continue;
+    const v = Number(q.volume?.[i] ?? 0) || 0;
+    // daily currency bars start at London midnight, 23:00 UTC in summer: they belong to the next UTC day
+    const ms = t[i] * 1000 + (slotMs === 86_400_000 && new Date(t[i] * 1000).getUTCHours() === 23 ? 3_600_000 : 0);
+    const slot = Math.floor(ms / slotMs) * slotMs;
+    const b = by.get(slot);
+    if (!b) by.set(slot, [slot, o, h, l, c, v]);
+    else { b[2] = Math.max(b[2], h); b[3] = Math.min(b[3], l); b[4] = c; b[5] += v; }
+  }
+  return [...by.values()].sort((a, b) => a[0] - b[0]);
+}
